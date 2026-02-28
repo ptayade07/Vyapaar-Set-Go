@@ -1,6 +1,28 @@
 # VyapaarSetGo - Smart Grocery Management System
 
-A complete desktop application for managing grocery store operations built with Python, CustomTkinter, and SQLite.
+VyapaarSetGo is a production-ready Smart Grocery Management System built as a full-featured desktop application using Python and CustomTkinter.
+
+Designed to streamline grocery store operations, VyapaarSetGo provides inventory tracking, billing automation, supplier management, customer credit tracking (Khata), and powerful reporting — all within a modern, responsive desktop interface.
+
+This project demonstrates real-world business logic implementation, modular architecture design, and local database management 
+
+using SQLite.
+![![alt text](image-1.png)](image.png)
+## Why VyapaarSetGo?
+
+Small and medium grocery businesses often struggle with:
+
+- Manual stock tracking
+- Unstructured credit management
+- Inconsistent sales reporting
+- Lack of digital record keeping
+
+VyapaarSetGo solves these problems through:
+
+- Automated stock updates during billing
+- Structured supplier and customer management
+- Insightful sales analytics
+- Secure multi-user access
 
 ## Features
 
@@ -95,12 +117,15 @@ The application creates the following tables:
 ## Features in Detail
 
 ### Inventory Management
+
+![alt text](image-2.png)
 - Add/edit/delete products
 - Track quantity, unit price, and expiry dates
 - Search and filter by category and stock level
 - Automatic stock updates on sales
 
 ### Sales/Billing
+![alt text](image-3.png)
 - Search products by name or ID
 - Add products to cart with quantity selection
 - Apply discounts
@@ -137,9 +162,28 @@ The application creates the following tables:
 
 To backup your data, simply copy the `vyapaarsetgo.db` file to a safe location. To restore, replace the file with your backup.
 
-## License
+## Built With
 
-This project is open source and available for use and modification.
+- Python 3.8+
+- CustomTkinter (Modern UI Framework)
+- SQLite (Lightweight Local Database)
+- PyInstaller (Windows Executable Packaging)
+
+## Architecture Overview
+
+VyapaarSetGo follows a modular desktop application architecture:
+
+- **main.py** – Entry point and application controller
+- **database.py** – Centralized SQLite CRUD operations
+- **modules/** – Feature-based modules (inventory, sales, reports, etc.)
+- **components/** – Reusable UI components (sidebar, header)
+- **config.py** – Theme management and configuration
+
+This structure ensures scalability, maintainability, and separation of concerns.
+
+## Project Purpose
+
+VyapaarSetGo was developed to simulate a real-world grocery ERP system and demonstrate end-to-end desktop application development, including authentication, database management, billing logic, and reporting systems.
 
 ## Support
 
