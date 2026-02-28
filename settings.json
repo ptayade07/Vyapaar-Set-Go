@@ -1,0 +1,16 @@
+{
+  "theme": "Light",
+  "language": "English",
+  "date_format": "YYYY-MM-DD",
+  "currency": "\u20b9 (INR)",
+  "low_stock_alerts": 1,
+  "expiry_reminders": 1,
+  "daily_reports": 1,
+  "payment_reminders": 1,
+  "backup_frequency": "Daily",
+  "export_format": "CSV",
+  "auto_save": 1,
+  "shop_name": "VSG",
+  "contact_email": "purvataade@gmail.com",
+  "phone_number": "9403229194"
+}

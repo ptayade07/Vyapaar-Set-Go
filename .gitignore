@@ -1,0 +1,7 @@
+dist/
+build/
+Output/
+__pycache__/
+*.db
+user_databases/
+*.spec
