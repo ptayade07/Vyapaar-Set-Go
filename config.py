@@ -7,6 +7,28 @@ from utils.settings_manager import SettingsManager
 # Initialize settings manager
 settings_manager = SettingsManager()
 
+# Global app font family (change this to switch fonts everywhere)
+APP_FONT_FAMILY = "Poppins"
+
+# Monkey-patch CTkFont so that whenever no family is given,
+# our global app font family is used instead.
+_OriginalCTkFont = ctk.CTkFont
+
+
+def AppFont(*args, **kwargs):
+    if "family" not in kwargs or not kwargs.get("family"):
+        kwargs["family"] = APP_FONT_FAMILY
+    return _OriginalCTkFont(*args, **kwargs)
+
+
+ctk.CTkFont = AppFont
+
+
+def app_font(size=12, weight="normal"):
+    """Helper for creating app fonts with the global family."""
+    return ctk.CTkFont(size=size, weight=weight)
+
+
 # CustomTkinter appearance settings (will be overridden by settings manager)
 ctk.set_appearance_mode("system")
 ctk.set_default_color_theme("green")

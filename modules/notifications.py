@@ -191,9 +191,9 @@ class Notifications(ctk.CTkFrame):
         )
         title_label.pack(side="left", fill="x", expand=True)
         
-        # Time and actions
+        # Time and actions (notification style: time + Done pill)
         actions_frame = ctk.CTkFrame(top_row, fg_color="transparent")
-        actions_frame.pack(side="right")
+        actions_frame.pack(side="right", padx=(12, 0))
         
         # Format time
         if isinstance(created_at, str):
@@ -205,40 +205,36 @@ class Notifications(ctk.CTkFrame):
             time_obj = created_at if hasattr(created_at, 'strftime') else datetime.now()
         
         time_str = time_obj.strftime("%b %d, %H:%M")
+        # Stack time above the action so it looks like a notification meta line
         time_label = ctk.CTkLabel(
             actions_frame,
             text=time_str,
             font=ctk.CTkFont(size=10),
             text_color=COLORS['text_light']
         )
-        time_label.pack(side="right", padx=(0, 10))
+        time_label.pack(anchor="e", pady=(0, 4))
         
-        # Mark as read button
+        # 'Done' acts as "seen" / "mark as read"
         if not is_read:
             mark_read_btn = ctk.CTkButton(
                 actions_frame,
-                text="✓",
-                width=30,
-                height=30,
+                text="Done",
+                width=70,
+                height=26,
                 command=lambda nid=notif_id: self.mark_as_read(nid),
                 fg_color=COLORS['primary'],
                 hover_color=COLORS['primary_dark'],
-                font=ctk.CTkFont(size=12)
+                font=ctk.CTkFont(size=11, weight="bold")
             )
-            mark_read_btn.pack(side="right", padx=(0, 5))
-        
-        # Delete button
-        delete_btn = ctk.CTkButton(
-            actions_frame,
-            text="🗑️",
-            width=30,
-            height=30,
-            command=lambda nid=notif_id: self.delete_notification(nid),
-            fg_color=COLORS['error'],
-            hover_color="#dc2626",
-            font=ctk.CTkFont(size=12)
-        )
-        delete_btn.pack(side="right")
+            mark_read_btn.pack(anchor="e")
+        else:
+            status_label = ctk.CTkLabel(
+                actions_frame,
+                text="Seen",
+                font=ctk.CTkFont(size=10),
+                text_color=COLORS['text_light']
+            )
+            status_label.pack(anchor="e")
         
         # Message
         message_label = ctk.CTkLabel(
@@ -281,10 +277,16 @@ class Notifications(ctk.CTkFrame):
 
 
 def check_low_stock(db, threshold=10):
-    """Check for low stock products and create notifications"""
+    """Check for low stock products and create notifications (only if low_stock_alerts is on)."""
     if not db:
         return
-    
+    try:
+        from utils.settings_manager import SettingsManager
+        if not SettingsManager().get("low_stock_alerts", True):
+            return
+    except Exception:
+        pass
+
     # Get products with low stock
     low_stock_products = db.fetch_all(
         "SELECT id, product_id, name, quantity FROM products WHERE quantity > 0 AND quantity <= ?",
@@ -336,4 +338,67 @@ def check_low_stock(db, threshold=10):
                     0
                 )
             )
+
+
+def check_expiry_reminders(db, days_ahead=30):
+    """Create notifications for products expiring soon (only if expiry_reminders is on)."""
+    if not db:
+        return
+    try:
+        from utils.settings_manager import SettingsManager
+        if not SettingsManager().get("expiry_reminders", True):
+            return
+    except Exception:
+        return
+    try:
+        from datetime import timedelta
+        today = datetime.now().date()
+        end = today + timedelta(days=days_ahead)
+        rows = db.fetch_all(
+            "SELECT id, product_id, name, expiry_date FROM products WHERE expiry_date IS NOT NULL AND date(expiry_date) <= date(?) AND date(expiry_date) >= date(?)",
+            (end, today)
+        )
+        for row in rows:
+            pid, prod_id, name, exp = row[0], row[1], row[2], row[3]
+            existing = db.fetch_one(
+                "SELECT id FROM notifications WHERE type = 'expiry' AND message LIKE ? AND is_read = 0",
+                (f"%{name}%",)
+            )
+            if not existing:
+                db.execute_query(
+                    "INSERT INTO notifications (type, title, message, is_read) VALUES (?, ?, ?, ?)",
+                    ("expiry", "Expiry Reminder", f'Product "{name}" expires on {exp}. Consider using or restocking.', 0)
+                )
+    except Exception:
+        pass
+
+
+def check_payment_reminders(db):
+    """Create a notification for pending customer dues (only if payment_reminders is on)."""
+    if not db:
+        return
+    try:
+        from utils.settings_manager import SettingsManager
+        if not SettingsManager().get("payment_reminders", True):
+            return
+    except Exception:
+        return
+    try:
+        row = db.fetch_one(
+            "SELECT COUNT(*), COALESCE(SUM(due_amount), 0) FROM customers WHERE due_amount > 0"
+        )
+        if not row or (row[0] == 0 and row[1] == 0):
+            return
+        count, total = int(row[0]), float(row[1])
+        existing = db.fetch_one(
+            "SELECT id FROM notifications WHERE type = 'payment_reminder' AND is_read = 0 LIMIT 1"
+        )
+        if not existing:
+            sym = SettingsManager().get_currency_symbol()
+            db.execute_query(
+                "INSERT INTO notifications (type, title, message, is_read) VALUES (?, ?, ?, ?)",
+                ("payment_reminder", "Payment Reminder", f"{count} customer(s) have pending dues (total {sym} {total:,.2f}).", 0)
+            )
+    except Exception:
+        pass
 

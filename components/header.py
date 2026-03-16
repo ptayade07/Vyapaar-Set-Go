@@ -63,13 +63,17 @@ class Header(ctk.CTkFrame):
         )
         logo_icon.place(relx=0.5, rely=0.5, anchor="center")
         
-        # Logo text - Always show VSG
+        # Logo text - use shop name from settings (default VSG)
         logo_text_frame = ctk.CTkFrame(logo_container, fg_color="transparent")
         logo_text_frame.pack(side="left", padx=(10, 0))
-        
+
+        from utils.settings_manager import SettingsManager
+        settings = SettingsManager()
+        shop_name = settings.get("shop_name", "VSG") or "VSG"
+
         logo_label = ctk.CTkLabel(
             logo_text_frame,
-            text="VSG",
+            text=shop_name,
             font=ctk.CTkFont(size=18, weight="bold"),
             text_color=COLORS['text'],
         )

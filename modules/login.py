@@ -227,6 +227,42 @@ class LoginFrame(ctk.CTkFrame):
         form_frame = ctk.CTkFrame(self.form_container, fg_color="transparent")
         form_frame.pack(fill="x")
         
+        # Full name field
+        name_label = ctk.CTkLabel(
+            form_frame,
+            text="Full Name",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS['text'],
+            anchor="w"
+        )
+        name_label.pack(fill="x", pady=(0, 3))
+        
+        self.signup_name_entry = ctk.CTkEntry(
+            form_frame,
+            placeholder_text="Your full name",
+            height=42,
+            font=ctk.CTkFont(size=14)
+        )
+        self.signup_name_entry.pack(fill="x", pady=(0, 12))
+        
+        # Phone number field
+        phone_label = ctk.CTkLabel(
+            form_frame,
+            text="Phone Number",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS['text'],
+            anchor="w"
+        )
+        phone_label.pack(fill="x", pady=(0, 3))
+        
+        self.signup_phone_entry = ctk.CTkEntry(
+            form_frame,
+            placeholder_text="10-digit mobile number",
+            height=42,
+            font=ctk.CTkFont(size=14)
+        )
+        self.signup_phone_entry.pack(fill="x", pady=(0, 12))
+        
         # Username field
         username_label = ctk.CTkLabel(
             form_frame,
@@ -328,11 +364,13 @@ class LoginFrame(ctk.CTkFrame):
     
     def handle_signup(self):
         """Handle sign up attempt"""
+        full_name = self.signup_name_entry.get().strip()
+        phone = self.signup_phone_entry.get().strip()
         username = self.signup_username_entry.get().strip()
         password = self.signup_password_entry.get().strip()
         confirm_password = self.confirm_password_entry.get().strip()
         
-        if not username or not password or not confirm_password:
+        if not full_name or not phone or not username or not password or not confirm_password:
             self.error_label.configure(text="Please fill all fields")
             return
         
@@ -344,15 +382,20 @@ class LoginFrame(ctk.CTkFrame):
             self.error_label.configure(text="Password must be at least 4 characters")
             return
         
+        # Basic phone validation (optional but helpful)
+        if len(phone) < 6:
+            self.error_label.configure(text="Please enter a valid phone number")
+            return
+        
         # Check if username already exists
         existing = self.db.fetch_one("SELECT id FROM users WHERE username = ?", (username,))
         if existing:
             self.error_label.configure(text="Username already exists")
             return
         
-        # Create new user
-        query = "INSERT INTO users (username, password, role) VALUES (?, ?, ?)"
-        if self.db.execute_query(query, (username, password, 'shop_owner')):
+        # Create new user with profile info
+        query = "INSERT INTO users (username, password, role, full_name, phone) VALUES (?, ?, ?, ?, ?)"
+        if self.db.execute_query(query, (username, password, 'shop_owner', full_name, phone)):
             self.error_label.configure(text="Account created successfully! Please login.", text_color=COLORS['success'])
             self.after(1000, self.show_login_form)
         else:

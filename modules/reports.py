@@ -2,13 +2,19 @@
 Reports module
 """
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 from database import Database
 from config import COLORS, DB_PATH
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
+import csv
+import json
+import tempfile
+import webbrowser
+import os
+from utils.settings_manager import SettingsManager
 
 
 class Reports(ctk.CTkFrame):
@@ -20,6 +26,10 @@ class Reports(ctk.CTkFrame):
         if not db:
             self.db.connect()  # Ensure connection is established
         self.current_filter = "daily"
+        self.last_sales_data = []
+        self.last_start_date = None
+        self.last_end_date = None
+        self.last_date_format = "%b %d"
         self.setup_ui()
         self.load_reports()
     
@@ -257,6 +267,12 @@ class Reports(ctk.CTkFrame):
                   ORDER BY sale_date"""
         
         sales_data = self.db.fetch_all(query, (start_date, end_date))
+
+        # Remember last loaded data and range for CSV/print
+        self.last_sales_data = sales_data
+        self.last_start_date = start_date
+        self.last_end_date = end_date
+        self.last_date_format = date_format
         
         # Prepare data for charts
         dates = []
@@ -284,14 +300,15 @@ class Reports(ctk.CTkFrame):
         # Create Sales Overview Chart with dark mode support
         from utils.chart_utils import get_chart_colors, configure_chart_dark_mode
         colors = get_chart_colors()
-        
+        _sym = SettingsManager().get_currency_symbol()
+
         if sales:
             fig1, ax1 = plt.subplots(figsize=(8, 4), facecolor=colors['figure_bg'])
             fig1, ax1 = configure_chart_dark_mode(fig1, ax1)
             
             ax1.plot(dates, sales, color='#f97316', marker='o', linewidth=2, markersize=6)
             ax1.fill_between(dates, sales, alpha=0.3, color='#f97316')
-            ax1.set_ylabel('Sales (₹)', fontsize=10)
+            ax1.set_ylabel(f'Sales ({_sym})', fontsize=10)
             ax1.set_xlabel('Date', fontsize=10)
             ax1.set_title('Sales Overview', fontsize=12, fontweight='bold')
             plt.xticks(rotation=45)
@@ -307,7 +324,7 @@ class Reports(ctk.CTkFrame):
             fig2, ax2 = configure_chart_dark_mode(fig2, ax2)
             
             ax2.bar(dates, profits, color='#22c55e', alpha=0.8)
-            ax2.set_ylabel('Profit (₹)', fontsize=10)
+            ax2.set_ylabel(f'Profit ({_sym})', fontsize=10)
             ax2.set_xlabel('Date', fontsize=10)
             ax2.set_title('Profit Trend', fontsize=12, fontweight='bold')
             plt.xticks(rotation=45)
@@ -317,17 +334,19 @@ class Reports(ctk.CTkFrame):
             canvas2.draw()
             canvas2.get_tk_widget().pack(fill="both", expand=True)
         
-        # Create summary cards
+        # Create summary cards (use currency from settings)
         if sales_data:
+            sm = SettingsManager()
+            sym = sm.get_currency_symbol()
             total_sales = sum(float(row[1]) for row in sales_data)
             total_profit = total_sales * 0.3
             total_transactions = sum(row[2] for row in sales_data)
             avg_transaction = total_sales / total_transactions if total_transactions > 0 else 0
-            
-            self.create_summary_card("Total Sales", f"₹ {total_sales:,.2f}", COLORS['primary'])
-            self.create_summary_card("Total Profit", f"₹ {total_profit:,.2f}", COLORS['success'])
+
+            self.create_summary_card("Total Sales", f"{sym} {total_sales:,.2f}", COLORS['primary'])
+            self.create_summary_card("Total Profit", f"{sym} {total_profit:,.2f}", COLORS['success'])
             self.create_summary_card("Transactions", f"{total_transactions:,}", COLORS['secondary'])
-            self.create_summary_card("Avg. Transaction", f"₹ {avg_transaction:,.2f}", COLORS['warning'])
+            self.create_summary_card("Avg. Transaction", f"{sym} {avg_transaction:,.2f}", COLORS['warning'])
         
         # Create detailed table
         for idx, row in enumerate(sales_data):
@@ -335,10 +354,10 @@ class Reports(ctk.CTkFrame):
             profit = float(total_sales) * 0.3
             avg_trans = float(total_sales) / trans_count if trans_count > 0 else 0
             
-            # Format date string for display
-            if isinstance(date_str, str):
-                display_date = date_str
-            else:
+            # Format date string for display (use date_format from settings)
+            try:
+                display_date = SettingsManager().format_date(date_str)
+            except Exception:
                 display_date = date_str.strftime("%Y-%m-%d") if hasattr(date_str, 'strftime') else str(date_str)
             
             row_bg = COLORS.get('surface_hover', COLORS['surface']) if idx % 2 == 0 else COLORS['background']
@@ -370,10 +389,10 @@ class Reports(ctk.CTkFrame):
             )
             date_label.grid(row=0, column=0, padx=15, pady=12, sticky="w")
             
-            # Total Sales
+            # Total Sales (currency from settings)
             sales_label = ctk.CTkLabel(
                 row_frame,
-                text=f"₹ {total_sales:,.2f}",
+                text=f"{sym} {total_sales:,.2f}",
                 font=ctk.CTkFont(size=12),
                 text_color=COLORS['text'],
                 width=120
@@ -383,7 +402,7 @@ class Reports(ctk.CTkFrame):
             # Total Profit
             profit_label = ctk.CTkLabel(
                 row_frame,
-                text=f"₹ {profit:,.2f}",
+                text=f"{sym} {profit:,.2f}",
                 font=ctk.CTkFont(size=12, weight="bold"),
                 text_color=COLORS['primary'],
                 width=120
@@ -403,7 +422,7 @@ class Reports(ctk.CTkFrame):
             # Avg Transaction Value
             avg_label = ctk.CTkLabel(
                 row_frame,
-                text=f"₹ {avg_trans:.2f}",
+                text=f"{sym} {avg_trans:.2f}",
                 font=ctk.CTkFont(size=12),
                 text_color=COLORS['text'],
                 width=150
@@ -411,8 +430,74 @@ class Reports(ctk.CTkFrame):
             avg_label.grid(row=0, column=4, padx=15, pady=12, sticky="w")
     
     def download_csv(self):
-        """Download report as CSV"""
-        messagebox.showinfo("Download CSV", "CSV download functionality can be implemented here")
+        """Download current report view as CSV or JSON based on export_format setting."""
+        if not self.last_sales_data:
+            messagebox.showinfo("Download", "No report data available for the selected period.")
+            return
+
+        sm = SettingsManager()
+        export_fmt = (sm.get("export_format") or "CSV").strip().upper()
+        if export_fmt not in ("CSV", "JSON", "EXCEL"):
+            export_fmt = "CSV"
+        sym = sm.get_currency_symbol()
+
+        if export_fmt == "JSON":
+            default_name = f"vyapaar_report_{self.current_filter}_{datetime.now().strftime('%Y%m%d')}.json"
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".json",
+                filetypes=[("JSON files", "*.json")],
+                initialfile=default_name,
+                title="Save report as JSON",
+            )
+        else:
+            default_name = f"vyapaar_report_{self.current_filter}_{datetime.now().strftime('%Y%m%d')}.csv"
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+                initialfile=default_name,
+                title="Save report",
+            )
+        if not file_path:
+            return
+
+        try:
+            rows_out = []
+            for row in self.last_sales_data:
+                date_str, total_sales, trans_count = row
+                total_sales = float(total_sales)
+                profit = total_sales * 0.3
+                avg_trans = total_sales / trans_count if trans_count else 0.0
+                display_date = sm.format_date(date_str) if date_str else ""
+                rows_out.append({
+                    "date": display_date,
+                    "total_sales": total_sales,
+                    "total_profit": profit,
+                    "transactions": trans_count,
+                    "avg_transaction": round(avg_trans, 2),
+                })
+
+            if export_fmt == "JSON":
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(rows_out, f, indent=2)
+                messagebox.showinfo("Download", f"Report saved as JSON:\n{file_path}")
+                return
+            # CSV (or Excel as CSV)
+            with open(file_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    ["Date", f"Total Sales ({sym})", f"Total Profit ({sym})", "Transactions", f"Avg. Transaction ({sym})"]
+                )
+                for r in rows_out:
+                    writer.writerow([
+                        r["date"],
+                        f"{r['total_sales']:.2f}",
+                        f"{r['total_profit']:.2f}",
+                        r["transactions"],
+                        f"{r['avg_transaction']:.2f}",
+                    ])
+            messagebox.showinfo("Download", f"Report saved:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("Download", f"Failed to save:\n{e}")
     
     def create_summary_card(self, title, value, color):
         """Create a summary card"""
@@ -439,6 +524,87 @@ class Reports(ctk.CTkFrame):
         value_label.pack(anchor="w")
     
     def print_report(self):
-        """Print report"""
-        messagebox.showinfo("Print Report", "Print functionality can be implemented here")
+        """Open current report as printable HTML in the browser."""
+        if not self.last_sales_data:
+            messagebox.showinfo("Print Report", "No report data available for the selected period.")
+            return
+
+        try:
+            html = self._build_report_html()
+            fd, path = tempfile.mkstemp(suffix=".html", prefix="vyapaar_report_")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(html)
+            webbrowser.open("file://" + path)
+        except Exception as e:
+            messagebox.showerror("Print Report", f"Failed to open printable report:\n{e}")
+
+    def _build_report_html(self) -> str:
+        """Generate a simple printable HTML report using last_sales_data."""
+        sm = SettingsManager()
+        sym = sm.get_currency_symbol()
+        rows_html = []
+        total_sales = 0.0
+        total_profit = 0.0
+        total_transactions = 0
+
+        for row in self.last_sales_data:
+            date_str, tsales, trans_count = row
+            tsales = float(tsales)
+            profit = tsales * 0.3
+            avg_trans = tsales / trans_count if trans_count else 0.0
+            total_sales += tsales
+            total_profit += profit
+            total_transactions += trans_count
+            display_date = sm.format_date(date_str) if date_str else ""
+            rows_html.append(
+                f"<tr><td>{display_date}</td>"
+                f"<td>{sym} {tsales:.2f}</td>"
+                f"<td>{sym} {profit:.2f}</td>"
+                f"<td>{trans_count}</td>"
+                f"<td>{sym} {avg_trans:.2f}</td></tr>"
+            )
+
+        avg_transaction = total_sales / total_transactions if total_transactions else 0.0
+        rows = "\n".join(rows_html)
+        start = sm.format_date(self.last_start_date) if self.last_start_date else ""
+        end = sm.format_date(self.last_end_date) if self.last_end_date else ""
+        generated_on = datetime.now().strftime("%d %b %Y, %I:%M %p")
+
+        return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>VyapaarSetGo - Report</title>
+<style>
+body {{ font-family: system-ui, sans-serif; max-width: 800px; margin: 24px auto; padding: 16px; }}
+h1 {{ font-size: 1.5rem; margin-bottom: 4px; }}
+p.meta {{ color: #6b7280; font-size: 0.9rem; }}
+table {{ width: 100%; border-collapse: collapse; margin: 16px 0; }}
+th, td {{ padding: 8px 10px; text-align: left; border-bottom: 1px solid #e5e7eb; font-size: 0.9rem; }}
+th {{ font-weight: 600; background-color: #f9fafb; }}
+.summary {{ margin-top: 12px; font-size: 0.95rem; }}
+.summary strong {{ font-weight: 600; }}
+@media print {{ body {{ margin: 12px; }} }}
+</style></head>
+<body>
+<h1>VyapaarSetGo - Sales Report</h1>
+<p class="meta">Range: {start} to {end}<br>Generated on: {generated_on}</p>
+<table>
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Total Sales ({sym})</th>
+      <th>Total Profit ({sym})</th>
+      <th>Transactions</th>
+      <th>Avg. Transaction ({sym})</th>
+    </tr>
+  </thead>
+  <tbody>
+    {rows}
+  </tbody>
+</table>
+<div class="summary">
+  <p><strong>Total Sales:</strong> {sym} {total_sales:.2f}</p>
+  <p><strong>Total Profit (30% est.):</strong> {sym} {total_profit:.2f}</p>
+  <p><strong>Total Transactions:</strong> {total_transactions}</p>
+  <p><strong>Avg. Transaction:</strong> {sym} {avg_transaction:.2f}</p>
+</div>
+</body></html>"""
 

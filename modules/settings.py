@@ -12,10 +12,11 @@ import os
 class Settings(ctk.CTkFrame):
     """Settings page"""
     
-    def __init__(self, parent, on_theme_change=None):
+    def __init__(self, parent, current_user=None, on_theme_change=None):
         # Import COLORS fresh to get current theme colors
         from config import COLORS
         super().__init__(parent, fg_color=COLORS['background'])
+        self.current_user = current_user  # tuple: (id, username, role)
         self.settings_manager = SettingsManager()
         self.settings = self.settings_manager.settings.copy()
         self.controls = {}  # Store references to all controls
@@ -63,14 +64,12 @@ class Settings(ctk.CTkFrame):
             ("Auto-save", "Automatically save changes", "auto_save", None),
         ])
         
-        # Account Settings Section
+        # Account Settings Section (only Shop Name now)
         self.create_section(scroll_frame, "Account", [
             ("Shop Name", "Your shop/business name", "shop_name", None),
-            ("Contact Email", "Primary contact email", "contact_email", None),
-            ("Phone Number", "Contact phone number", "phone_number", None),
         ])
         
-        # Action Buttons
+        # Action Buttons (only Save, aligned to right)
         buttons_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
         buttons_frame.pack(fill="x", pady=(30, 0))
         
@@ -83,29 +82,7 @@ class Settings(ctk.CTkFrame):
             height=45,
             font=ctk.CTkFont(size=14, weight="bold")
         )
-        save_btn.pack(side="left", padx=5)
-        
-        reset_btn = ctk.CTkButton(
-            buttons_frame,
-            text="🔄 Reset to Defaults",
-            command=self.reset_settings,
-            fg_color=COLORS['secondary'],
-            hover_color="#4b5563",
-            height=45,
-            font=ctk.CTkFont(size=14)
-        )
-        reset_btn.pack(side="left", padx=5)
-        
-        export_btn = ctk.CTkButton(
-            buttons_frame,
-            text="📤 Export Settings",
-            command=self.export_settings,
-            fg_color=COLORS['secondary'],
-            hover_color="#4b5563",
-            height=45,
-            font=ctk.CTkFont(size=14)
-        )
-        export_btn.pack(side="left", padx=5)
+        save_btn.pack(side="right", padx=5)
     
     def create_section(self, parent, section_title, items):
         """Create a settings section with editable controls"""
@@ -151,10 +128,55 @@ class Settings(ctk.CTkFrame):
             
             # Right side - value/control
             right_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
-            right_frame.pack(side="right", padx=(20, 0))
+            right_frame.pack(side="right", padx=(20, 0), pady=(5, 0))
             
             # Create appropriate control based on setting type
             current_value = self.settings.get(setting_key, "")
+
+            # Toggle (switch) settings - always use switch, coerce 1/0 to bool
+            toggle_keys = ("low_stock_alerts", "expiry_reminders", "daily_reports", "payment_reminders", "auto_save")
+            if setting_key in toggle_keys:
+                bool_val = bool(current_value) if current_value not in (None, "") else (setting_key != "daily_reports")
+                control = ctk.CTkSwitch(
+                    right_frame,
+                    text="",
+                    width=50,
+                    height=20
+                )
+                control.select() if bool_val else control.deselect()
+                control.pack(side="right")
+                self.controls[setting_key] = control
+                if idx < len(items) - 1:
+                    divider = ctk.CTkFrame(section_frame, fg_color=COLORS['background'], height=1)
+                    divider.pack(fill="x", padx=20, pady=(0, 0))
+                continue
+
+            # Special handling for shop name: label + Change button with password check
+            if setting_key == "shop_name":
+                name_value = str(current_value or "")
+                value_label = ctk.CTkLabel(
+                    right_frame,
+                    text=name_value or "Not set",
+                    font=ctk.CTkFont(size=12),
+                    text_color=COLORS['text'],
+                    anchor="e",
+                )
+                value_label.pack(anchor="e", pady=(0, 6))
+
+                change_btn = ctk.CTkButton(
+                    right_frame,
+                    text="Change",
+                    width=90,
+                    height=32,
+                    fg_color=COLORS['primary'],
+                    hover_color=COLORS['primary_dark'],
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    command=lambda: self.open_change_shop_name_dialog(value_label),
+                )
+                change_btn.pack(anchor="e")
+
+                self.controls[setting_key] = value_label
+                continue
             
             if options is not None:
                 # Dropdown/ComboBox for options
@@ -207,22 +229,30 @@ class Settings(ctk.CTkFrame):
                 current[key] = control.get()
             elif isinstance(control, ctk.CTkEntry):
                 current[key] = control.get()
+            elif isinstance(control, ctk.CTkLabel):
+                current[key] = control.cget("text")
         return current
     
     def save_settings(self):
         """Save settings"""
         # Get current values from controls
         new_settings = self.get_current_settings()
+        # Track old values BEFORE updating self.settings
+        old_shop_name = self.settings.get("shop_name", "VSG")
+        old_theme = self.settings.get("theme", "System")
+
+        # Apply new in-memory settings
         self.settings.update(new_settings)
         
         # Update settings manager
         for key, value in new_settings.items():
             self.settings_manager.set(key, value)
         
-        # Check if theme changed
-        old_theme = self.settings.get("theme", "System")
+        # Check if theme or shop name changed
         new_theme = new_settings.get("theme", "System")
         theme_changed = old_theme != new_theme
+        new_shop_name = new_settings.get("shop_name", old_shop_name)
+        shop_name_changed = new_shop_name != old_shop_name
         
         # Save to file and apply changes
         if self.settings_manager.save():
@@ -255,6 +285,19 @@ class Settings(ctk.CTkFrame):
                 for widget in self.winfo_children():
                     widget.destroy()
                 self.setup_ui()
+
+                # Also refresh header/logo and profile shop name if it changed
+                if shop_name_changed:
+                    try:
+                        root = self.winfo_toplevel()
+                        if hasattr(root, "header"):
+                            root.header.update_colors()
+                        if hasattr(root, "pages") and isinstance(root.pages, dict):
+                            profile_page = root.pages.get("profile")
+                            if profile_page and hasattr(profile_page, "reload_profile"):
+                                profile_page.reload_profile()
+                    except Exception:
+                        pass
         else:
             messagebox.showerror("Error", "Failed to save settings. Please try again.")
     
@@ -315,3 +358,323 @@ class Settings(ctk.CTkFrame):
                 messagebox.showinfo("Settings Exported", f"Your settings have been exported to:\n{filename}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to export settings: {e}")
+
+    # ------------------------------------------------------------------
+    # Account helpers
+    # ------------------------------------------------------------------
+    def _get_user_email(self):
+        """Fetch current user's email from main users table, if any."""
+        if not self.current_user:
+            return None
+        try:
+            from config import DB_PATH
+            from database import Database
+            db = Database(DB_PATH)
+            db.connect()
+            row = db.fetch_one("SELECT email FROM users WHERE id = ?", (self.current_user[0],))
+            if row and len(row) > 0:
+                return row[0]
+        except Exception:
+            return None
+        return None
+
+    def open_change_shop_name_dialog(self, value_label):
+        """Open dialog to change shop name with password confirmation."""
+        if not self.current_user:
+            messagebox.showerror("Error", "User information not available.")
+            return
+
+        from config import DB_PATH
+        from database import Database
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Change Shop Name")
+        # Extra height so fields + buttons always visible
+        dialog.geometry("520x380")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        frame = ctk.CTkFrame(dialog, fg_color=COLORS['surface'])
+        frame.pack(fill="both", expand=True, padx=20, pady=16)
+
+        title = ctk.CTkLabel(
+            frame,
+            text="Change Shop Name",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS['text'],
+        )
+        title.pack(anchor="w", padx=10, pady=(10, 5))
+
+        info = ctk.CTkLabel(
+            frame,
+            text="Enter a new shop name and confirm with your account password.",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS['text_light'],
+            wraplength=420,
+            justify="left",
+        )
+        info.pack(anchor="w", padx=10, pady=(0, 15))
+
+        name_label = ctk.CTkLabel(
+            frame,
+            text="New Shop Name",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS['text'],
+            anchor="w",
+        )
+        name_label.pack(fill="x", padx=10, pady=(0, 3))
+
+        name_entry = ctk.CTkEntry(frame, height=38, font=ctk.CTkFont(size=12))
+        current_name = value_label.cget("text")
+        if current_name and current_name != "Not set":
+            name_entry.insert(0, current_name)
+        name_entry.pack(fill="x", padx=10, pady=(0, 10))
+
+        pwd_label = ctk.CTkLabel(
+            frame,
+            text="Current Password",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS['text'],
+            anchor="w",
+        )
+        pwd_label.pack(fill="x", padx=10, pady=(8, 3))
+
+        pwd_entry = ctk.CTkEntry(frame, height=38, font=ctk.CTkFont(size=12), show="*")
+        pwd_entry.pack(fill="x", padx=10, pady=(0, 10))
+
+        error_label = ctk.CTkLabel(
+            frame,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS['error'],
+        )
+        error_label.pack(anchor="w", padx=10, pady=(0, 8))
+
+        buttons = ctk.CTkFrame(frame, fg_color="transparent")
+        buttons.pack(fill="x", padx=10, pady=(8, 4))
+
+        def do_close():
+            dialog.destroy()
+
+        def do_save():
+            new_name = name_entry.get().strip()
+            password = pwd_entry.get().strip()
+
+            if not new_name or not password:
+                error_label.configure(text="Please enter both shop name and password.")
+                return
+
+            try:
+                db = Database(DB_PATH)
+                db.connect()
+                row = db.fetch_one(
+                    "SELECT password FROM users WHERE id = ?",
+                    (self.current_user[0],),
+                )
+                if not row or row[0] != password:
+                    error_label.configure(text="Password is incorrect.")
+                    return
+
+                # Save in settings
+                self.settings_manager.set("shop_name", new_name)
+                self.settings_manager.save()
+                value_label.configure(text=new_name)
+
+                messagebox.showinfo("Shop Name Updated", "Your shop name has been updated.")
+                dialog.destroy()
+            except Exception as e:
+                error_label.configure(text=f"Error: {e}")
+
+        cancel_btn = ctk.CTkButton(
+            buttons,
+            text="Cancel",
+            fg_color="transparent",
+            border_color=COLORS['secondary'],
+            border_width=1,
+            hover_color=COLORS['background'],
+            text_color=COLORS['text'],
+            height=32,
+            font=ctk.CTkFont(size=12),
+            command=do_close,
+        )
+        cancel_btn.pack(side="right", padx=(8, 0))
+
+        save_btn = ctk.CTkButton(
+            buttons,
+            text="Save",
+            fg_color=COLORS['primary'],
+            hover_color=COLORS['primary_dark'],
+            text_color="white",
+            height=32,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=do_save,
+        )
+        save_btn.pack(side="right")
+
+        name_entry.focus_set()
+    def open_change_email_dialog(self, value_label):
+        """Open dialog to change contact email with password confirmation."""
+        if not self.current_user:
+            messagebox.showerror("Error", "User information not available.")
+            return
+
+        from config import DB_PATH
+        from database import Database
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Change Contact Email")
+        # Make window larger so everything (including buttons) is visible
+        dialog.geometry("480x380")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # Content frame (no scroll, bigger window instead)
+        frame = ctk.CTkFrame(dialog, fg_color=COLORS['surface'])
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        title = ctk.CTkLabel(
+            frame,
+            text="Change Contact Email",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS['text'],
+        )
+        title.pack(anchor="w", padx=10, pady=(10, 5))
+
+        info = ctk.CTkLabel(
+            frame,
+            text="Enter a new email address and confirm with your account password.",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS['text_light'],
+            wraplength=360,
+            justify="left",
+        )
+        info.pack(anchor="w", padx=10, pady=(0, 15))
+
+        # Email entry
+        email_label = ctk.CTkLabel(
+            frame,
+            text="New Email",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS['text'],
+            anchor="w",
+        )
+        email_label.pack(fill="x", padx=10, pady=(0, 3))
+
+        email_entry = ctk.CTkEntry(frame, height=36, font=ctk.CTkFont(size=12))
+        current_email = self._get_user_email() or value_label.cget("text")
+        if current_email and current_email != "Not set":
+            email_entry.insert(0, current_email)
+        email_entry.pack(fill="x", padx=10, pady=(0, 10))
+
+        # Password entry
+        pwd_label = ctk.CTkLabel(
+            frame,
+            text="Current Password",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLORS['text'],
+            anchor="w",
+        )
+        pwd_label.pack(fill="x", padx=10, pady=(10, 3))
+
+        pwd_entry = ctk.CTkEntry(
+            frame,
+            height=36,
+            font=ctk.CTkFont(size=12),
+            show="*",
+        )
+        pwd_entry.pack(fill="x", padx=10, pady=(0, 10))
+
+        error_label = ctk.CTkLabel(
+            frame,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS['error'],
+        )
+        error_label.pack(anchor="w", padx=10, pady=(0, 8))
+
+        buttons = ctk.CTkFrame(frame, fg_color="transparent")
+        buttons.pack(fill="x", padx=10, pady=(10, 0))
+
+        def do_close():
+            dialog.destroy()
+
+        def do_save():
+            new_email = email_entry.get().strip()
+            password = pwd_entry.get().strip()
+
+            if not new_email or not password:
+                error_label.configure(text="Please enter both email and password.")
+                return
+
+            if "@" not in new_email or "." not in new_email:
+                error_label.configure(text="Please enter a valid email address.")
+                return
+
+            try:
+                db = Database(DB_PATH)
+                db.connect()
+                row = db.fetch_one(
+                    "SELECT password FROM users WHERE id = ?",
+                    (self.current_user[0],),
+                )
+                if not row or row[0] != password:
+                    error_label.configure(text="Password is incorrect.")
+                    return
+
+                if not db.execute_query(
+                    "UPDATE users SET email = ? WHERE id = ?",
+                    (new_email, self.current_user[0]),
+                ):
+                    error_label.configure(text="Failed to update email. Please try again.")
+                    return
+
+                # Update settings contact_email as well
+                self.settings_manager.set("contact_email", new_email)
+                self.settings_manager.save()
+                value_label.configure(text=new_email)
+
+                # Also refresh Profile page (if it exists) so email shows updated value
+                try:
+                    root = self.winfo_toplevel()
+                    if hasattr(root, "pages") and isinstance(root.pages, dict):
+                        profile_page = root.pages.get("profile")
+                        if profile_page and hasattr(profile_page, "reload_profile"):
+                            profile_page.reload_profile()
+                except Exception:
+                    pass
+
+                messagebox.showinfo("Email Updated", "Your contact email has been updated.")
+                dialog.destroy()
+            except Exception as e:
+                error_label.configure(text=f"Error: {e}")
+
+        cancel_btn = ctk.CTkButton(
+            buttons,
+            text="Cancel",
+            fg_color="transparent",
+            border_color=COLORS['secondary'],
+            border_width=1,
+            hover_color=COLORS['background'],
+            text_color=COLORS['text'],
+            height=32,
+            font=ctk.CTkFont(size=12),
+            command=do_close,
+        )
+        cancel_btn.pack(side="right", padx=(8, 0))
+
+        save_btn = ctk.CTkButton(
+            buttons,
+            text="Save",
+            fg_color=COLORS['primary'],
+            hover_color=COLORS['primary_dark'],
+            text_color="white",
+            height=32,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=do_save,
+        )
+        save_btn.pack(side="right")
+
+        email_entry.focus_set()
+        dialog.wait_window()

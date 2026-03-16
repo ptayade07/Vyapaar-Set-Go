@@ -25,8 +25,10 @@ class Dashboard(ctk.CTkFrame):
     def setup_dashboard(self):
         """Setup dashboard UI"""
         # Scrollable frame
+        # Use slightly smaller top padding so the first
+        # row of cards lines up more cleanly with the header.
         scroll_frame = ctk.CTkScrollableFrame(self, fg_color=COLORS['background'])
-        scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        scroll_frame.pack(fill="both", expand=True, padx=20, pady=(10, 20))
         
         # Top row - Summary cards (4 cards)
         self.stats_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
@@ -48,7 +50,7 @@ class Dashboard(ctk.CTkFrame):
         self.top_products_frame = ctk.CTkFrame(charts_row, fg_color=COLORS['surface'], corner_radius=10)
         self.top_products_frame.pack(side="left", fill="both", expand=True)
         
-        # Bottom row - Additional info (3 cards)
+        # Bottom row - Additional info (with notifications summary)
         bottom_row = ctk.CTkFrame(scroll_frame, fg_color="transparent")
         bottom_row.pack(fill="x", pady=(0, 20))
         
@@ -59,6 +61,10 @@ class Dashboard(ctk.CTkFrame):
         # Products by Category
         self.products_category_frame = ctk.CTkFrame(bottom_row, fg_color=COLORS['surface'], corner_radius=10)
         self.products_category_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        
+        # Notifications summary
+        self.notifications_frame = ctk.CTkFrame(bottom_row, fg_color=COLORS['surface'], corner_radius=10)
+        self.notifications_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
         
         # This Month Summary
         self.month_summary_frame = ctk.CTkFrame(bottom_row, fg_color=COLORS['surface'], corner_radius=10)
@@ -203,6 +209,7 @@ class Dashboard(ctk.CTkFrame):
         self.load_time_sales()
         self.load_products_by_category()
         self.load_month_summary()
+        self.load_notifications_summary()
     
     def load_charts(self):
         """Load sales trend chart"""
@@ -254,10 +261,10 @@ class Dashboard(ctk.CTkFrame):
     
     def load_category_data(self):
         """Load sales by category (donut chart style)"""
-        # Get category sales data
+        # Get category sales data (join via products.id, not product_id text)
         query = """SELECT p.category, SUM(si.quantity * si.unit_price) as total
                    FROM sale_items si
-                   JOIN products p ON si.product_id = p.product_id
+                   JOIN products p ON si.product_id = p.id
                    JOIN sales s ON si.sale_id = s.id
                    WHERE date(s.sale_date) >= date('now', '-30 days')
                    GROUP BY p.category
@@ -313,7 +320,7 @@ class Dashboard(ctk.CTkFrame):
         """Load top selling products"""
         query = """SELECT p.name, SUM(si.quantity) as total_qty
                    FROM sale_items si
-                   JOIN products p ON si.product_id = p.product_id
+                   JOIN products p ON si.product_id = p.id
                    JOIN sales s ON si.sale_id = s.id
                    WHERE date(s.sale_date) >= date('now', '-30 days')
                    GROUP BY p.name
@@ -395,8 +402,17 @@ class Dashboard(ctk.CTkFrame):
         chart_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
         
         if time_data:
-            hours = [f"{int(row[0])}:00" for row in time_data]
-            amounts = [float(row[1]) for row in time_data]
+            # Format hours nicely as 12-hr timestamps (e.g. 9:00 AM, 3:00 PM)
+            hours = []
+            amounts = []
+            for row in time_data:
+                try:
+                    hour_int = int(row[0])
+                except (ValueError, TypeError):
+                    hour_int = 0
+                t = datetime.now().replace(hour=hour_int, minute=0, second=0, microsecond=0)
+                hours.append(t.strftime("%I:%M %p").lstrip("0"))
+                amounts.append(float(row[1]))
             
             from utils.chart_utils import get_chart_colors, configure_chart_dark_mode
             colors = get_chart_colors()
@@ -421,6 +437,75 @@ class Dashboard(ctk.CTkFrame):
                 text_color=COLORS['text_light']
             )
             no_data.pack(pady=20)
+
+    def load_notifications_summary(self):
+        """Show latest notifications and quick link to full notifications page."""
+        title_label = ctk.CTkLabel(
+            self.notifications_frame,
+            text="Recent Notifications",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=COLORS['text'],
+        )
+        title_label.pack(pady=15, padx=15, anchor="w")
+
+        content = ctk.CTkFrame(self.notifications_frame, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=15, pady=(0, 10))
+
+        # Fetch latest few notifications
+        rows = self.db.fetch_all(
+            "SELECT id, type, title, message, is_read, created_at "
+            "FROM notifications ORDER BY datetime(created_at) DESC LIMIT 4"
+        )
+
+        if not rows:
+            empty = ctk.CTkLabel(
+                content,
+                text="No notifications yet.",
+                font=ctk.CTkFont(size=12),
+                text_color=COLORS["text_light"],
+            )
+            empty.pack(anchor="w", pady=10)
+        else:
+            for nid, ntype, title, message, is_read, created_at in rows:
+                row_frame = ctk.CTkFrame(
+                    content,
+                    fg_color=COLORS.get("surface_hover", COLORS["background"]) if not is_read else "transparent",
+                    corner_radius=8,
+                )
+                row_frame.pack(fill="x", pady=4)
+
+                text = ctk.CTkLabel(
+                    row_frame,
+                    text=title,
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                    text_color=COLORS["text"],
+                    anchor="w",
+                )
+                text.pack(anchor="w", padx=10, pady=(6, 2))
+
+                sub = ctk.CTkLabel(
+                    row_frame,
+                    text=message[:80] + "..." if len(message) > 80 else message,
+                    font=ctk.CTkFont(size=11),
+                    text_color=COLORS["text_light"],
+                    anchor="w",
+                )
+                sub.pack(anchor="w", padx=10, pady=(0, 6))
+
+        # Footer with 'View more' link
+        footer = ctk.CTkFrame(self.notifications_frame, fg_color="transparent")
+        footer.pack(fill="x", padx=15, pady=(0, 10))
+
+        view_btn = ctk.CTkButton(
+            footer,
+            text="View all notifications",
+            fg_color=COLORS["primary"],
+            hover_color=COLORS["primary_dark"],
+            height=30,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda: self.on_navigate("notifications") if self.on_navigate else None,
+        )
+        view_btn.pack(anchor="w")
     
     def load_products_by_category(self):
         """Load products count by category"""

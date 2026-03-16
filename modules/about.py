@@ -23,9 +23,9 @@ class About(ctk.CTkFrame):
 
         # Center content wrapper
         center_wrapper = ctk.CTkFrame(main_container, fg_color="transparent")
-        center_wrapper.pack(expand=True, pady=20)
+        center_wrapper.pack(expand=True, pady=10)
         
-        # Center content
+        # Center content with constrained width so it feels like a card
         center_frame = ctk.CTkFrame(center_wrapper, fg_color="transparent")
         center_frame.pack(expand=True)
 
@@ -66,8 +66,14 @@ class About(ctk.CTkFrame):
         )
         tagline_label.pack(pady=(0, 20))
 
-        # Version
-        version_frame = ctk.CTkFrame(center_frame, fg_color=COLORS["surface"], corner_radius=8)
+        # Version pill
+        version_frame = ctk.CTkFrame(
+            center_frame,
+            fg_color=COLORS.get("surface", "#ffffff"),
+            corner_radius=999,
+            border_width=1,
+            border_color=COLORS.get("border", COLORS["secondary"]),
+        )
         version_frame.pack(pady=(0, 30))
 
         version_label = ctk.CTkLabel(
@@ -78,9 +84,25 @@ class About(ctk.CTkFrame):
         )
         version_label.pack(padx=20, pady=12)
 
+        # Two-column content row (About + Features on left, Tech on right)
+        content_row = ctk.CTkFrame(center_frame, fg_color="transparent")
+        content_row.pack(fill="both", expand=True)
+
+        left_column = ctk.CTkFrame(content_row, fg_color="transparent")
+        left_column.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+        right_column = ctk.CTkFrame(content_row, fg_color="transparent")
+        right_column.pack(side="left", fill="both", expand=True, padx=(10, 0))
+
         # Description
-        desc_frame = ctk.CTkFrame(center_frame, fg_color=COLORS["surface"], corner_radius=12)
-        desc_frame.pack(fill="x", pady=(0, 20))
+        desc_frame = ctk.CTkFrame(
+            left_column,
+            fg_color=COLORS["surface"],
+            corner_radius=12,
+            border_width=1,
+            border_color=COLORS.get("border", COLORS["secondary"]),
+        )
+        desc_frame.pack(fill="x", pady=(0, 12))
 
         desc_title = ctk.CTkLabel(
             desc_frame,
@@ -90,24 +112,32 @@ class About(ctk.CTkFrame):
         )
         desc_title.pack(anchor="w", padx=20, pady=(20, 10))
 
+        common_body_font = ctk.CTkFont(size=12)
+
         desc_text = ctk.CTkLabel(
             desc_frame,
             text=(
-                f"{APP_NAME} is a comprehensive grocery store management system designed to help "
-                "you manage your inventory, track sales, maintain customer accounts, and generate "
-                "reports. Built with modern technology to provide a smooth and efficient experience "
-                "for managing your grocery business."
+                f"{APP_NAME} is a smart business assistant made for small grocery and kirana shops. "
+                "It brings your daily work into one simple place so you can track stock, manage customer khata, "
+                "handle suppliers, bill customers quickly, and understand your business with clear reports — "
+                "without complicated software or spreadsheets."
             ),
-            font=ctk.CTkFont(size=12),
+            font=common_body_font,
             text_color=COLORS["text"],
-            wraplength=500,
+            wraplength=520,
             justify="left",
         )
         desc_text.pack(anchor="w", padx=20, pady=(0, 20))
 
         # Features List
-        features_frame = ctk.CTkFrame(center_frame, fg_color=COLORS["surface"], corner_radius=12)
-        features_frame.pack(fill="x", pady=(0, 20))
+        features_frame = ctk.CTkFrame(
+            left_column,
+            fg_color=COLORS["surface"],
+            corner_radius=12,
+            border_width=1,
+            border_color=COLORS.get("border", COLORS["secondary"]),
+        )
+        features_frame.pack(fill="both", expand=True, pady=(0, 12))
 
         features_title = ctk.CTkLabel(
             features_frame,
@@ -118,24 +148,92 @@ class About(ctk.CTkFrame):
         features_title.pack(anchor="w", padx=20, pady=(20, 15))
 
         features = [
-            "📦 Inventory Management",
-            "📒 Customer Khata (Account Management)",
-            "🛒 Sales & Billing",
-            "🚚 Supplier Management",
-            "📊 Reports & Analytics",
-            "👤 User Profile Management",
+            "📦 Track stock levels and product details in one place",
+            "📒 Manage customer khata (dues and advance balances)",
+            "🧾 Fast sales & billing with printable bills",
+            "🚚 Record supplier purchases and update inventory automatically",
+            "📊 Ready-made reports for sales, stock, and customer activity",
+            "👤 Simple profile page with basic account information",
         ]
 
         for feature in features:
             feature_label = ctk.CTkLabel(
                 features_frame,
-                text=feature,
-                font=ctk.CTkFont(size=12),
+                text=f"• {feature}",
+                font=common_body_font,
                 text_color=COLORS["text"],
+                justify="left",
+                anchor="w",
             )
-            feature_label.pack(anchor="w", padx=20, pady=(0, 8))
+            feature_label.pack(fill="x", padx=20, pady=(0, 6))
 
         ctk.CTkLabel(features_frame, text="", height=5).pack(anchor="w", padx=20, pady=(0, 10))
+
+        # Technology & Developer Info
+        tech_frame = ctk.CTkFrame(
+            right_column,
+            fg_color=COLORS["surface"],
+            corner_radius=12,
+            border_width=1,
+            border_color=COLORS.get("border", COLORS["secondary"]),
+        )
+        tech_frame.pack(fill="both", expand=True, pady=(0, 12))
+
+        tech_title = ctk.CTkLabel(
+            tech_frame,
+            text="Technology Stack",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS["text"],
+        )
+        tech_title.pack(anchor="w", padx=20, pady=(20, 10))
+
+        tech_body = ctk.CTkLabel(
+            tech_frame,
+            text=(
+                "• Python with CustomTkinter for a clean, modern desktop UI\n"
+                "• SQLite for fast, file-based data storage\n"
+                "• Matplotlib and reporting tools for charts and exports\n"
+                "• Pillow (PIL) for profile and image handling"
+            ),
+            font=common_body_font,
+            text_color=COLORS["text"],
+            justify="left",
+            wraplength=520,
+        )
+        tech_body.pack(anchor="w", padx=20, pady=(0, 16))
+
+        dev_label = ctk.CTkLabel(
+            tech_frame,
+            text="Built to help local shop owners run their daily business more efficiently and professionally.",
+            font=common_body_font,
+            text_color=COLORS["text_light"],
+            wraplength=520,
+            justify="left",
+        )
+        dev_label.pack(anchor="w", padx=20, pady=(0, 20))
+
+        # Support / Contact
+        support_title = ctk.CTkLabel(
+            tech_frame,
+            text="Support",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS["text"],
+        )
+        support_title.pack(anchor="w", padx=20, pady=(0, 6))
+
+        support_body = ctk.CTkLabel(
+            tech_frame,
+            text=(
+                "For questions or feedback about VyapaarSetGo,\n"
+                "please contact the developer at:\n"
+                "Email: purvatayade2603@gmail.com"
+            ),
+            font=common_body_font,
+            text_color=COLORS["text_light"],
+            justify="left",
+            wraplength=520,
+        )
+        support_body.pack(anchor="w", padx=20, pady=(0, 16))
 
         # Footer
         footer_label = ctk.CTkLabel(
@@ -144,5 +242,5 @@ class About(ctk.CTkFrame):
             font=ctk.CTkFont(size=11),
             text_color=COLORS["text_light"],
         )
-        footer_label.pack(pady=(20, 0))
+        footer_label.pack(pady=(16, 0))
 

@@ -92,9 +92,25 @@ class Database:
                     username TEXT UNIQUE NOT NULL,
                     password TEXT NOT NULL,
                     role TEXT DEFAULT 'shop_owner',
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    avatar_path TEXT,
+                    full_name TEXT,
+                    phone TEXT,
+                    email TEXT
                 )
             """)
+
+            # Ensure new user columns exist for older databases
+            cursor.execute("PRAGMA table_info(users)")
+            existing_user_cols = {row[1] for row in cursor.fetchall()}
+            if "avatar_path" not in existing_user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN avatar_path TEXT")
+            if "full_name" not in existing_user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN full_name TEXT")
+            if "phone" not in existing_user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+            if "email" not in existing_user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN email TEXT")
 
             self.connection.commit()
             cursor.close()
@@ -128,9 +144,27 @@ class Database:
                     unit_price REAL NOT NULL,
                     expiry_date DATE,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    brand TEXT,
+                    supplier_id INTEGER,
+                    purchase_price REAL,
+                    unit_type TEXT,
+                    FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL
                 )
             """)
+
+            # Ensure new product columns exist for older databases
+            cursor.execute("PRAGMA table_info(products)")
+            existing_columns = {row[1] for row in cursor.fetchall()}
+            # Add columns one by one if they are missing
+            if "brand" not in existing_columns:
+                cursor.execute("ALTER TABLE products ADD COLUMN brand TEXT")
+            if "supplier_id" not in existing_columns:
+                cursor.execute("ALTER TABLE products ADD COLUMN supplier_id INTEGER")
+            if "purchase_price" not in existing_columns:
+                cursor.execute("ALTER TABLE products ADD COLUMN purchase_price REAL")
+            if "unit_type" not in existing_columns:
+                cursor.execute("ALTER TABLE products ADD COLUMN unit_type TEXT")
 
             cursor.execute("""
                 CREATE TRIGGER IF NOT EXISTS update_products_timestamp
@@ -149,9 +183,49 @@ class Database:
                     last_purchase_date DATE,
                     pending_payment REAL DEFAULT 0.00,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    alt_contact TEXT,
+                    email TEXT,
+                    address TEXT,
+                    city TEXT,
+                    state TEXT,
+                    gst_number TEXT,
+                    supplier_type TEXT,
+                    brands TEXT,
+                    products TEXT,
+                    notes TEXT,
+                    credit_limit REAL DEFAULT 0.00,
+                    last_interaction_date DATE
                 )
             """)
+
+            # Ensure new supplier columns exist for older databases
+            cursor.execute("PRAGMA table_info(suppliers)")
+            existing_supplier_cols = {row[1] for row in cursor.fetchall()}
+            if "alt_contact" not in existing_supplier_cols:
+                cursor.execute("ALTER TABLE suppliers ADD COLUMN alt_contact TEXT")
+            if "email" not in existing_supplier_cols:
+                cursor.execute("ALTER TABLE suppliers ADD COLUMN email TEXT")
+            if "address" not in existing_supplier_cols:
+                cursor.execute("ALTER TABLE suppliers ADD COLUMN address TEXT")
+            if "city" not in existing_supplier_cols:
+                cursor.execute("ALTER TABLE suppliers ADD COLUMN city TEXT")
+            if "state" not in existing_supplier_cols:
+                cursor.execute("ALTER TABLE suppliers ADD COLUMN state TEXT")
+            if "gst_number" not in existing_supplier_cols:
+                cursor.execute("ALTER TABLE suppliers ADD COLUMN gst_number TEXT")
+            if "supplier_type" not in existing_supplier_cols:
+                cursor.execute("ALTER TABLE suppliers ADD COLUMN supplier_type TEXT")
+            if "brands" not in existing_supplier_cols:
+                cursor.execute("ALTER TABLE suppliers ADD COLUMN brands TEXT")
+            if "products" not in existing_supplier_cols:
+                cursor.execute("ALTER TABLE suppliers ADD COLUMN products TEXT")
+            if "notes" not in existing_supplier_cols:
+                cursor.execute("ALTER TABLE suppliers ADD COLUMN notes TEXT")
+            if "credit_limit" not in existing_supplier_cols:
+                cursor.execute("ALTER TABLE suppliers ADD COLUMN credit_limit REAL DEFAULT 0.00")
+            if "last_interaction_date" not in existing_supplier_cols:
+                cursor.execute("ALTER TABLE suppliers ADD COLUMN last_interaction_date DATE")
 
             cursor.execute("""
                 CREATE TRIGGER IF NOT EXISTS update_suppliers_timestamp
@@ -170,9 +244,19 @@ class Database:
                     due_amount REAL DEFAULT 0.00,
                     last_payment_date DATE,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    address TEXT,
+                    notes TEXT
                 )
             """)
+
+            # Ensure new customer columns exist for older databases
+            cursor.execute("PRAGMA table_info(customers)")
+            existing_customer_cols = {row[1] for row in cursor.fetchall()}
+            if "address" not in existing_customer_cols:
+                cursor.execute("ALTER TABLE customers ADD COLUMN address TEXT")
+            if "notes" not in existing_customer_cols:
+                cursor.execute("ALTER TABLE customers ADD COLUMN notes TEXT")
 
             cursor.execute("""
                 CREATE TRIGGER IF NOT EXISTS update_customers_timestamp
@@ -229,6 +313,44 @@ class Database:
                     amount REAL NOT NULL,
                     payment_date DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+                )
+            """)
+
+            # ---------------- Supplier Purchases ----------------
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS purchases (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    supplier_id INTEGER NOT NULL,
+                    product TEXT NOT NULL,
+                    quantity REAL NOT NULL,
+                    unit_price REAL NOT NULL,
+                    total_amount REAL NOT NULL,
+                    purchase_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+                )
+            """)
+
+            # ---------------- Supplier Logs ----------------
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS supplier_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    supplier_id INTEGER NOT NULL,
+                    note TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+                )
+            """)
+
+            # ---------------- Product History ----------------
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS product_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    product_id INTEGER NOT NULL,
+                    change_type TEXT NOT NULL,
+                    quantity_change INTEGER NOT NULL,
+                    note TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
                 )
             """)
 

@@ -17,7 +17,7 @@ from modules.help import Help
 from modules.faq import FAQ
 from modules.about import About
 from modules.settings import Settings
-from modules.notifications import Notifications, check_low_stock
+from modules.notifications import Notifications, check_low_stock, check_expiry_reminders, check_payment_reminders
 from modules.splash import SplashScreen
 from components.sidebar import Sidebar
 from components.header import Header
@@ -105,8 +105,10 @@ class MainApplication(ctk.CTk):
         # Initialize user-specific database tables (without users table)
         self.db.initialize_user_database()
         
-        # Check for low stock notifications on login
+        # Check for notifications on login (respect settings)
         check_low_stock(self.db)
+        check_expiry_reminders(self.db)
+        check_payment_reminders(self.db)
         
         # Clear login content
         for widget in self.winfo_children():
@@ -137,9 +139,10 @@ class MainApplication(ctk.CTk):
         # Import COLORS fresh to get updated values
         from config import COLORS
         
-        # Sidebar
+        # Sidebar - add top padding so it visually aligns
+        # with the header and main content cards.
         self.sidebar = Sidebar(self, self.navigate_to_page)
-        self.sidebar.pack(side="left", fill="y")
+        self.sidebar.pack(side="left", fill="y", pady=(10, 0))
         
         # Main content area
         self.main_container = ctk.CTkFrame(self, fg_color=COLORS['background'])
@@ -153,7 +156,9 @@ class MainApplication(ctk.CTk):
             user_name=user_name,
             on_profile_click=lambda: self.navigate_to_page("profile"),
         )
-        self.header.pack(fill="x")
+        # Add horizontal padding so the header aligns with
+        # the dashboard cards, and a small top margin.
+        self.header.pack(fill="x", padx=20, pady=(10, 0))
         
         # Content frame
         self.content_frame = ctk.CTkFrame(self.main_container, fg_color=COLORS['background'])
@@ -191,11 +196,15 @@ class MainApplication(ctk.CTk):
             "help": Help(self.content_frame, on_navigate=self.navigate_to_page),
             "faq": FAQ(self.content_frame),
             "about": About(self.content_frame),
-            "settings": Settings(self.content_frame, on_theme_change=self.refresh_app_theme),
+            "settings": Settings(self.content_frame, current_user=self.current_user, on_theme_change=self.refresh_app_theme),
         }
         
-        # Check for low stock notifications after pages are initialized
-        self.after(500, lambda: check_low_stock(self.db))
+        # Check for notifications after pages are initialized (respect settings)
+        def run_notification_checks():
+            check_low_stock(self.db)
+            check_expiry_reminders(self.db)
+            check_payment_reminders(self.db)
+        self.after(500, run_notification_checks)
     
     def refresh_pages_after_sale(self):
         """Refresh all pages after a sale transaction"""
@@ -225,6 +234,17 @@ class MainApplication(ctk.CTk):
                     inventory.update_idletasks()
             except Exception as e:
                 print(f"Error refreshing inventory: {e}")
+        
+        # Refresh customer Khata so balances reflect the latest sale
+        if "khata" in self.pages:
+            try:
+                khata = self.pages["khata"]
+                if hasattr(khata, 'load_customers'):
+                    khata.load_customers()
+                if self.current_page == khata:
+                    khata.update_idletasks()
+            except Exception as e:
+                print(f"Error refreshing khata: {e}")
         
         # Refresh notifications to check for new low stock alerts
         if "notifications" in self.pages:

@@ -18,13 +18,17 @@ class Help(ctk.CTkFrame):
         # Import COLORS fresh to get current theme colors
         from config import COLORS
         
-        # Main container
-        main_container = ctk.CTkScrollableFrame(self, fg_color=COLORS["background"])
-        main_container.pack(fill="both", expand=True, padx=40, pady=40)
+        # Main container (regular frame, no vertical scrollbar)
+        main_container = ctk.CTkFrame(self, fg_color=COLORS["background"])
+        main_container.pack(fill="both", expand=True, padx=30, pady=30)
 
-        # Header Section
-        header_section = ctk.CTkFrame(main_container, fg_color=COLORS["surface"], corner_radius=12)
-        header_section.pack(fill="x", pady=(0, 40))
+        # Header Section - use standard surface color so it matches theme
+        header_section = ctk.CTkFrame(
+            main_container,
+            fg_color=COLORS["surface"],
+            corner_radius=16,
+        )
+        header_section.pack(fill="x", pady=(0, 30))
 
         header_content = ctk.CTkFrame(header_section, fg_color="transparent")
         header_content.pack(fill="x", padx=30, pady=40)
@@ -37,52 +41,39 @@ class Help(ctk.CTkFrame):
         )
         title.pack(anchor="w", pady=(0, 20))
 
-        # Search bar (visual only - not functional)
-        search_frame = ctk.CTkFrame(header_content, fg_color=COLORS["background"], corner_radius=8)
-        search_frame.pack(fill="x", pady=(0, 15))
+        # Search bar
+        search_frame = ctk.CTkFrame(
+            header_content,
+            fg_color=COLORS["surface"],
+            corner_radius=999,
+            border_width=1,
+            border_color=COLORS.get("border", COLORS["secondary"]),
+        )
+        search_frame.pack(fill="x", pady=(0, 18))
 
-        search_entry = ctk.CTkEntry(
+        self.search_entry = ctk.CTkEntry(
             search_frame,
-            placeholder_text="Search...",
-            height=45,
+            placeholder_text="Search for help topics, e.g. 'sales', 'inventory', 'suppliers'...",
+            height=42,
             font=ctk.CTkFont(size=14),
             border_width=0,
         )
-        search_entry.pack(side="left", fill="x", expand=True, padx=15, pady=10)
+        self.search_entry.pack(side="left", fill="x", expand=True, padx=(18, 8), pady=8)
 
         search_btn = ctk.CTkButton(
             search_frame,
             text="Search",
+            command=self.perform_search,
             fg_color=COLORS["primary"],
             hover_color=COLORS["primary_dark"],
-            height=35,
-            width=80,
+            height=36,
+            width=90,
             font=ctk.CTkFont(size=12, weight="bold"),
+            corner_radius=999,
         )
-        search_btn.pack(side="right", padx=(0, 10), pady=5)
-
-        # Popular searches
-        popular_label = ctk.CTkLabel(
-            header_content,
-            text="Popular Searches:",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_light"],
-        )
-        popular_label.pack(anchor="w", pady=(0, 5))
-
-        popular_frame = ctk.CTkFrame(header_content, fg_color="transparent")
-        popular_frame.pack(anchor="w")
-
-        popular_searches = ["adding products", "processing sales", "managing customers"]
-        for i, search in enumerate(popular_searches):
-            search_link = ctk.CTkLabel(
-                popular_frame,
-                text=search,
-                font=ctk.CTkFont(size=12, underline=True),
-                text_color=COLORS["primary"],
-                cursor="hand2",
-            )
-            search_link.pack(side="left", padx=(0, 20) if i < len(popular_searches) - 1 else (0, 0))
+        search_btn.pack(side="right", padx=(0, 14), pady=8)
+        # Hitting Enter in the search box will also trigger search
+        self.search_entry.bind("<Return>", lambda _e: self.perform_search())
 
         # Help Cards Section
         cards_label = ctk.CTkLabel(
@@ -91,13 +82,13 @@ class Help(ctk.CTkFrame):
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color=COLORS["text"],
         )
-        cards_label.pack(anchor="w", pady=(0, 20))
+        cards_label.pack(anchor="w", pady=(10, 20))
 
-        # Cards grid
-        cards_frame = ctk.CTkFrame(main_container, fg_color="transparent")
-        cards_frame.pack(fill="x", pady=(0, 30))
+        # Cards grid (store master list for searching)
+        self.cards_frame = ctk.CTkFrame(main_container, fg_color="transparent")
+        self.cards_frame.pack(fill="x", pady=(0, 30))
 
-        help_cards = [
+        self.help_cards_master = [
             ("🏠", "Dashboard", "View your business overview, sales trends, and key metrics to track your store's performance.", "dashboard"),
             ("📦", "Inventory", "Manage your products - add, edit, delete items, track stock levels, and organize by categories.", "inventory"),
             ("📒", "Customer Khata", "Keep track of customer accounts, pending dues, and payment history for credit management.", "khata"),
@@ -108,25 +99,60 @@ class Help(ctk.CTkFrame):
             ("❓", "Getting Started", "Learn the basics of using VyapaarSetGo with step-by-step guides and tutorials.", None),
         ]
 
+        self.render_help_cards(self.help_cards_master)
+
+    def render_help_cards(self, cards_data):
+        """Render help cards grid from a list of (icon, title, description, page)."""
+        # Import COLORS fresh to get current theme colors
+        from config import COLORS
+
+        # Clear previous cards
+        for child in self.cards_frame.winfo_children():
+            child.destroy()
+
+        if not cards_data:
+            empty = ctk.CTkLabel(
+                self.cards_frame,
+                text="No help topics found. Try a different search.",
+                font=ctk.CTkFont(size=13),
+                text_color=COLORS["text_light"],
+            )
+            empty.pack(pady=10)
+            return
+
         # Create cards in grid (2 rows, 4 columns)
         row_frames = []
-        for i, (icon, title, description, page) in enumerate(help_cards):
+        for i, (icon, title, description, page) in enumerate(cards_data):
             row = i // 4
             col = i % 4
-            
-            # Create new row frame for each row
+
             if col == 0:
-                row_frame = ctk.CTkFrame(cards_frame, fg_color="transparent")
+                row_frame = ctk.CTkFrame(self.cards_frame, fg_color="transparent")
                 row_frame.pack(fill="x", pady=(0, 15))
                 row_frames.append(row_frame)
             else:
                 row_frame = row_frames[row]
-            
+
             card = self.create_help_card(row_frame, icon, title, description, page)
             card.pack(side="left", fill="both", expand=True, padx=(0, 15) if col < 3 else (0, 0))
 
+    def perform_search(self):
+        """Filter help cards based on search text."""
+        query = self.search_entry.get().strip().lower()
+        if not query:
+            self.render_help_cards(self.help_cards_master)
+            return
+
+        filtered = []
+        for icon, title, desc, page in self.help_cards_master:
+            text = f"{title} {desc}".lower()
+            if query in text:
+                filtered.append((icon, title, desc, page))
+
+        self.render_help_cards(filtered)
+
     def create_help_card(self, parent, icon, title, description, page):
-        """Create a help card"""
+        """Create a help card (original simpler layout)"""
         # Import COLORS fresh to get current theme colors
         from config import COLORS
         card = ctk.CTkFrame(parent, fg_color=COLORS["surface"], corner_radius=12)
@@ -137,6 +163,7 @@ class Help(ctk.CTkFrame):
             card,
             text=icon,
             font=ctk.CTkFont(size=40),
+            text_color=COLORS["primary"],
         )
         icon_label.pack(pady=(25, 15))
         
