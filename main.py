@@ -166,6 +166,12 @@ class MainApplication(ctk.CTk):
         
         # Initialize all pages
         self.initialize_pages()
+
+        # Keyboard shortcuts (global)
+        self.bind_all("<Control-k>", lambda _e: self.open_global_search())
+        self.bind_all("<Control-K>", lambda _e: self.open_global_search())
+        self.bind_all("<Control-f>", lambda _e: self.focus_page_search())
+        self.bind_all("<Control-F>", lambda _e: self.focus_page_search())
     
     def initialize_pages(self):
         """Initialize all application pages"""
@@ -205,6 +211,165 @@ class MainApplication(ctk.CTk):
             check_expiry_reminders(self.db)
             check_payment_reminders(self.db)
         self.after(500, run_notification_checks)
+
+    def focus_page_search(self):
+        """Try to focus a search field on the current page."""
+        page = self.current_page
+        if not page:
+            return
+        # Common attribute names used across pages
+        for attr in ("search_entry", "search", "search_box"):
+            w = getattr(page, attr, None)
+            if w is not None:
+                try:
+                    w.focus_set()
+                    w.select_range(0, "end")
+                    return
+                except Exception:
+                    pass
+        # Fallback: open global search
+        self.open_global_search()
+
+    def open_global_search(self):
+        """Global search dialog across products, customers, suppliers."""
+        if not getattr(self, "db", None):
+            return
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Global Search")
+        dialog.geometry("640x460")
+        dialog.configure(fg_color=COLORS["surface"])
+        dialog.transient(self)
+        dialog.grab_set()
+
+        container = ctk.CTkFrame(dialog, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=16, pady=16)
+
+        title = ctk.CTkLabel(
+            container,
+            text="Search (Products • Customers • Suppliers)",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS["text"],
+        )
+        title.pack(anchor="w")
+
+        hint = ctk.CTkLabel(
+            container,
+            text="Tip: Press Ctrl+K to open this anytime.",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_light"],
+        )
+        hint.pack(anchor="w", pady=(2, 10))
+
+        search_entry = ctk.CTkEntry(
+            container,
+            placeholder_text="Type to search… (e.g. sugar / purva / supplier name)",
+            height=40,
+            font=ctk.CTkFont(size=13),
+        )
+        search_entry.pack(fill="x")
+
+        results = ctk.CTkScrollableFrame(container, fg_color="transparent")
+        results.pack(fill="both", expand=True, pady=(12, 0))
+
+        def clear_results():
+            for w in results.winfo_children():
+                w.destroy()
+
+        def add_result(kind: str, label: str, on_open):
+            row = ctk.CTkFrame(
+                results,
+                fg_color=COLORS.get("surface_hover", COLORS["background"]),
+                corner_radius=10,
+                border_width=1,
+                border_color=COLORS.get("border", COLORS["secondary"]),
+            )
+            row.pack(fill="x", pady=6)
+
+            text = ctk.CTkLabel(
+                row,
+                text=f"{kind}  •  {label}",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=COLORS["text"],
+                anchor="w",
+            )
+            text.pack(side="left", fill="x", expand=True, padx=12, pady=10)
+
+            btn = ctk.CTkButton(
+                row,
+                text="Open",
+                width=80,
+                height=30,
+                fg_color=COLORS["primary"],
+                hover_color=COLORS["primary_dark"],
+                font=ctk.CTkFont(size=12, weight="bold"),
+                command=on_open,
+            )
+            btn.pack(side="right", padx=10)
+
+            for w in (row, text):
+                w.bind("<Button-1>", lambda _e: on_open())
+
+        def run_search(_event=None):
+            term = search_entry.get().strip()
+            clear_results()
+            if not term:
+                return
+
+            like = f"%{term}%"
+            # Products
+            try:
+                for pid, prod_id, name in self.db.fetch_all(
+                    "SELECT id, product_id, name FROM products WHERE name LIKE ? OR product_id LIKE ? ORDER BY name LIMIT 8",
+                    (like, like),
+                ):
+                    add_result(
+                        "Product",
+                        f'{name} ({prod_id})',
+                        lambda pterm=term: (dialog.destroy(), self.navigate_to_page("inventory")),
+                    )
+            except Exception:
+                pass
+
+            # Customers
+            try:
+                for cid, name, phone in self.db.fetch_all(
+                    "SELECT id, name, phone FROM customers WHERE name LIKE ? OR phone LIKE ? ORDER BY name LIMIT 8",
+                    (like, like),
+                ):
+                    add_result(
+                        "Customer",
+                        f"{name} ({phone})",
+                        lambda: (dialog.destroy(), self.navigate_to_page("khata")),
+                    )
+            except Exception:
+                pass
+
+            # Suppliers
+            try:
+                for sid, name, contact in self.db.fetch_all(
+                    "SELECT id, name, contact FROM suppliers WHERE name LIKE ? OR contact LIKE ? ORDER BY name LIMIT 8",
+                    (like, like),
+                ):
+                    add_result(
+                        "Supplier",
+                        f"{name} ({contact})",
+                        lambda: (dialog.destroy(), self.navigate_to_page("suppliers")),
+                    )
+            except Exception:
+                pass
+
+            if not results.winfo_children():
+                ctk.CTkLabel(
+                    results,
+                    text="No results.",
+                    font=ctk.CTkFont(size=12),
+                    text_color=COLORS["text_light"],
+                ).pack(pady=12)
+
+        search_entry.bind("<KeyRelease>", run_search)
+        search_entry.bind("<Return>", run_search)
+        search_entry.focus_set()
     
     def refresh_pages_after_sale(self):
         """Refresh all pages after a sale transaction"""

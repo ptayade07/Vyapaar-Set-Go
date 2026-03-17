@@ -289,8 +289,26 @@ class Profile(ctk.CTkFrame):
         account_grid = ctk.CTkFrame(account_content, fg_color="transparent")
         account_grid.pack(fill="x")
 
-        self.create_detail_row(account_grid, "Account Created", "10 Jan 2025")
-        self.create_detail_row(account_grid, "Last Login", "13 Mar 2026")
+        from database import Database as MainDB
+        from config import DB_PATH as MAIN_DB_PATH
+        created_str = "—"
+        last_login_str = "—"
+        try:
+            db = MainDB(MAIN_DB_PATH)
+            db.connect()
+            row = db.fetch_one(
+                "SELECT created_at, last_login FROM users WHERE id = ?",
+                (self.user[0],),
+            )
+            if row:
+                created_at, last_login = row[0], row[1]
+                created_str = str(created_at) if created_at else "—"
+                last_login_str = str(last_login) if last_login else "—"
+        except Exception:
+            pass
+
+        self.create_detail_row(account_grid, "Account Created", created_str)
+        self.create_detail_row(account_grid, "Last Login", last_login_str)
 
         # --- Shop Information ---
         shop_card = ctk.CTkFrame(
@@ -352,11 +370,11 @@ class Profile(ctk.CTkFrame):
         stats_grid = ctk.CTkFrame(stats_content, fg_color="transparent")
         stats_grid.pack(fill="x")
 
-        # Stats items (placeholder for now)
+        # Stats items (simplified, using account info)
         stats_items = [
-            ("Member Since", "2025"),
-            ("Last Login", "Today"),
-            ("Total Sessions", "Active"),
+            ("Member Since", created_str),
+            ("Last Login", last_login_str),
+            ("Total Sessions", "—"),
         ]
 
         for i, (label, value) in enumerate(stats_items):

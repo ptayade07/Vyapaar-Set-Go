@@ -287,10 +287,16 @@ def check_low_stock(db, threshold=10):
     except Exception:
         pass
 
-    # Get products with low stock
+    # Get products with low stock, respecting per-product reorder_level when available
     low_stock_products = db.fetch_all(
-        "SELECT id, product_id, name, quantity FROM products WHERE quantity > 0 AND quantity <= ?",
-        (threshold,)
+        """
+        SELECT id, product_id, name, quantity,
+               COALESCE(reorder_level, ?) AS effective_reorder
+        FROM products
+        WHERE quantity > 0
+          AND quantity <= COALESCE(reorder_level, ?)
+        """,
+        (threshold, threshold)
     )
     
     out_of_stock_products = db.fetch_all(

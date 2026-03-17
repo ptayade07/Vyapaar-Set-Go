@@ -93,6 +93,7 @@ class Database:
                     password TEXT NOT NULL,
                     role TEXT DEFAULT 'shop_owner',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_login DATETIME,
                     avatar_path TEXT,
                     full_name TEXT,
                     phone TEXT,
@@ -103,6 +104,8 @@ class Database:
             # Ensure new user columns exist for older databases
             cursor.execute("PRAGMA table_info(users)")
             existing_user_cols = {row[1] for row in cursor.fetchall()}
+            if "last_login" not in existing_user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN last_login DATETIME")
             if "avatar_path" not in existing_user_cols:
                 cursor.execute("ALTER TABLE users ADD COLUMN avatar_path TEXT")
             if "full_name" not in existing_user_cols:
@@ -111,6 +114,18 @@ class Database:
                 cursor.execute("ALTER TABLE users ADD COLUMN phone TEXT")
             if "email" not in existing_user_cols:
                 cursor.execute("ALTER TABLE users ADD COLUMN email TEXT")
+
+            # Login history table for auditing
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS login_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    username TEXT NOT NULL,
+                    success INTEGER NOT NULL,
+                    login_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+                )
+            """)
 
             self.connection.commit()
             cursor.close()
@@ -140,7 +155,7 @@ class Database:
                     product_id TEXT UNIQUE NOT NULL,
                     name TEXT NOT NULL,
                     category TEXT NOT NULL,
-                    quantity INTEGER NOT NULL DEFAULT 0,
+                    quantity REAL NOT NULL DEFAULT 0,
                     unit_price REAL NOT NULL,
                     expiry_date DATE,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -149,6 +164,8 @@ class Database:
                     supplier_id INTEGER,
                     purchase_price REAL,
                     unit_type TEXT,
+                    reorder_level REAL,
+                    barcode TEXT,
                     FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL
                 )
             """)
@@ -165,6 +182,10 @@ class Database:
                 cursor.execute("ALTER TABLE products ADD COLUMN purchase_price REAL")
             if "unit_type" not in existing_columns:
                 cursor.execute("ALTER TABLE products ADD COLUMN unit_type TEXT")
+            if "reorder_level" not in existing_columns:
+                cursor.execute("ALTER TABLE products ADD COLUMN reorder_level REAL")
+            if "barcode" not in existing_columns:
+                cursor.execute("ALTER TABLE products ADD COLUMN barcode TEXT")
 
             cursor.execute("""
                 CREATE TRIGGER IF NOT EXISTS update_products_timestamp
@@ -246,7 +267,8 @@ class Database:
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     address TEXT,
-                    notes TEXT
+                    notes TEXT,
+                    credit_limit REAL DEFAULT 0.00
                 )
             """)
 
@@ -257,6 +279,8 @@ class Database:
                 cursor.execute("ALTER TABLE customers ADD COLUMN address TEXT")
             if "notes" not in existing_customer_cols:
                 cursor.execute("ALTER TABLE customers ADD COLUMN notes TEXT")
+            if "credit_limit" not in existing_customer_cols:
+                cursor.execute("ALTER TABLE customers ADD COLUMN credit_limit REAL DEFAULT 0.00")
 
             cursor.execute("""
                 CREATE TRIGGER IF NOT EXISTS update_customers_timestamp
@@ -274,11 +298,28 @@ class Database:
                     total_amount REAL NOT NULL,
                     discount REAL DEFAULT 0.00,
                     final_amount REAL NOT NULL,
+                    tax_amount REAL DEFAULT 0.00,
+                    payment_method TEXT,
+                    is_return INTEGER DEFAULT 0,
+                    original_sale_id INTEGER,
                     customer_id INTEGER,
                     sale_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+                    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+                    FOREIGN KEY (original_sale_id) REFERENCES sales(id) ON DELETE SET NULL
                 )
             """)
+
+            # Ensure new sales columns exist for older databases
+            cursor.execute("PRAGMA table_info(sales)")
+            existing_sales_cols = {row[1] for row in cursor.fetchall()}
+            if "tax_amount" not in existing_sales_cols:
+                cursor.execute("ALTER TABLE sales ADD COLUMN tax_amount REAL DEFAULT 0.00")
+            if "payment_method" not in existing_sales_cols:
+                cursor.execute("ALTER TABLE sales ADD COLUMN payment_method TEXT")
+            if "is_return" not in existing_sales_cols:
+                cursor.execute("ALTER TABLE sales ADD COLUMN is_return INTEGER DEFAULT 0")
+            if "original_sale_id" not in existing_sales_cols:
+                cursor.execute("ALTER TABLE sales ADD COLUMN original_sale_id INTEGER")
 
             # ---------------- Sale Items Table ----------------
             cursor.execute("""
@@ -286,13 +327,20 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     sale_id INTEGER NOT NULL,
                     product_id INTEGER NOT NULL,
-                    quantity INTEGER NOT NULL,
+                    quantity REAL NOT NULL,
                     unit_price REAL NOT NULL,
                     total_price REAL NOT NULL,
+                    line_discount REAL DEFAULT 0.00,
                     FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
                     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
                 )
             """)
+
+            # Ensure new sale_items columns exist for older databases
+            cursor.execute("PRAGMA table_info(sale_items)")
+            existing_sale_item_cols = {row[1] for row in cursor.fetchall()}
+            if "line_discount" not in existing_sale_item_cols:
+                cursor.execute("ALTER TABLE sale_items ADD COLUMN line_discount REAL DEFAULT 0.00")
 
             # ---------------- Customer Payments ----------------
             cursor.execute("""

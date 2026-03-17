@@ -355,7 +355,29 @@ class LoginFrame(ctk.CTkFrame):
         # Authenticate user
         query = "SELECT id, username, role FROM users WHERE username = ? AND password = ?"
         user = self.db.fetch_one(query, (username, password))
-        
+
+        # Record login attempt in history
+        try:
+            if user:
+                self.db.execute_query(
+                    "INSERT INTO login_history (user_id, username, success) VALUES (?, ?, ?)",
+                    (user[0], user[1], 1),
+                )
+                # Update last_login for this user
+                self.db.execute_query(
+                    "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?",
+                    (user[0],),
+                )
+            else:
+                # Failed attempt (no matching user_id)
+                self.db.execute_query(
+                    "INSERT INTO login_history (user_id, username, success) VALUES (?, ?, ?)",
+                    (None, username, 0),
+                )
+        except Exception:
+            # Do not block login UI if audit logging fails
+            pass
+
         if user:
             self.error_label.configure(text="")
             self.on_success(user)
@@ -393,9 +415,13 @@ class LoginFrame(ctk.CTkFrame):
             self.error_label.configure(text="Username already exists")
             return
         
+        # Decide role: first user becomes shop_owner, others are staff
+        existing_user = self.db.fetch_one("SELECT id FROM users LIMIT 1")
+        new_role = 'shop_owner' if not existing_user else 'staff'
+
         # Create new user with profile info
         query = "INSERT INTO users (username, password, role, full_name, phone) VALUES (?, ?, ?, ?, ?)"
-        if self.db.execute_query(query, (username, password, 'shop_owner', full_name, phone)):
+        if self.db.execute_query(query, (username, password, new_role, full_name, phone)):
             self.error_label.configure(text="Account created successfully! Please login.", text_color=COLORS['success'])
             self.after(1000, self.show_login_form)
         else:

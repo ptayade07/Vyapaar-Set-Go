@@ -9,6 +9,7 @@ import webbrowser
 import tempfile
 import os
 from modules.khata import CustomerDialog
+from modules.refund_dialog import RefundDialog
 
 
 class Sales(ctk.CTkFrame):
@@ -28,6 +29,8 @@ class Sales(ctk.CTkFrame):
         self.selected_customer_id = None
         self.customer_combo = None
         self.on_data_change = on_data_change  # Callback to refresh other pages
+        # Per-item discounts (rupees per line) keyed by product_id
+        self.line_discounts = {}
         self.setup_ui()
         self.load_products()
         self.load_customers_for_billing()
@@ -92,8 +95,8 @@ class Sales(ctk.CTkFrame):
         self.products_frame = ctk.CTkFrame(self.products_scroll, fg_color="transparent")
         self.products_frame.pack(fill="both", expand=True)
         
-        # Right panel - Current Bill (slightly wider)
-        right_panel = ctk.CTkFrame(main_frame, fg_color=COLORS['surface'], corner_radius=12, width=460)
+        # Right panel - Current Bill (made wider so everything fits comfortably)
+        right_panel = ctk.CTkFrame(main_frame, fg_color=COLORS['surface'], corner_radius=12, width=520)
         right_panel.pack(side="right", fill="both", padx=(10, 0))
         right_panel.pack_propagate(False)
 
@@ -244,6 +247,28 @@ class Sales(ctk.CTkFrame):
         self.discount_entry.pack(side="right")
         self.discount_entry.bind("<KeyRelease>", lambda e: self.update_totals())
 
+        # Tax / GST
+        tax_frame = ctk.CTkFrame(summary_frame, fg_color="transparent")
+        tax_frame.pack(fill="x", padx=15, pady=10)
+
+        tax_label = ctk.CTkLabel(
+            tax_frame,
+            text="GST (%):",
+            font=ctk.CTkFont(size=14),
+            text_color=COLORS['text']
+        )
+        tax_label.pack(side="left")
+
+        self.tax_entry = ctk.CTkEntry(
+            tax_frame,
+            placeholder_text="0",
+            width=100,
+            height=30,
+            font=ctk.CTkFont(size=12)
+        )
+        self.tax_entry.pack(side="right")
+        self.tax_entry.bind("<KeyRelease>", lambda e: self.update_totals())
+
         # Amount Paid (by customer right now)
         amount_paid_frame = ctk.CTkFrame(summary_frame, fg_color="transparent")
         amount_paid_frame.pack(fill="x", padx=15, pady=10)
@@ -264,6 +289,28 @@ class Sales(ctk.CTkFrame):
             font=ctk.CTkFont(size=12)
         )
         self.amount_paid_entry.pack(side="right")
+
+        # Payment method selector
+        payment_frame = ctk.CTkFrame(summary_frame, fg_color="transparent")
+        payment_frame.pack(fill="x", padx=15, pady=(0, 10))
+
+        payment_label = ctk.CTkLabel(
+            payment_frame,
+            text="Payment Method:",
+            font=ctk.CTkFont(size=14),
+            text_color=COLORS['text']
+        )
+        payment_label.pack(side="left")
+
+        self.payment_method_combo = ctk.CTkComboBox(
+            payment_frame,
+            values=["Cash", "UPI", "Card", "Other"],
+            width=120,
+            height=30,
+            font=ctk.CTkFont(size=12),
+        )
+        self.payment_method_combo.pack(side="right")
+        self.payment_method_combo.set("Cash")
         
         # Hint about how Khata/advance is handled for customers
         self.khata_hint_label = ctk.CTkLabel(
@@ -324,6 +371,22 @@ class Sales(ctk.CTkFrame):
             font=ctk.CTkFont(size=14, weight="bold")
         )
         save_btn.pack(fill="x")
+
+        # Return / Refund button (opens a simple dialog)
+        refund_btn = ctk.CTkButton(
+            btn_frame,
+            text="↩ Return / Refund",
+            command=self.open_refund_dialog,
+            fg_color=COLORS['secondary'],
+            hover_color="#4b5563",
+            height=36,
+            font=ctk.CTkFont(size=13),
+        )
+        refund_btn.pack(fill="x", pady=(8, 0))
+
+    def open_refund_dialog(self):
+        """Open a simple dialog to record a return / refund against an existing bill."""
+        RefundDialog(self, self.db)
     
     def load_products(self, search_term=""):
         """Load products for sale"""
@@ -645,19 +708,21 @@ class Sales(ctk.CTkFrame):
         # Headers
         headers_frame = ctk.CTkFrame(self.bill_items_frame, fg_color=COLORS['background'], corner_radius=5)
         headers_frame.pack(fill="x", pady=(0, 5))
-        
-        headers = ["Item", "Qty", "Price", "Total", "Actions"]
-        widths = [150, 50, 80, 80, 60]
-        
-        for i, (header, width) in enumerate(zip(headers, widths)):
+
+        # Make this behave like a proper table: 6 uniform columns, shared between header and rows.
+        headers = ["Item", "Qty", "Price", "Disc", "Total", "Actions"]
+        for i in range(len(headers)):
+            headers_frame.grid_columnconfigure(i, weight=1, uniform="bill_cols")
+
+        for i, header in enumerate(headers):
             label = ctk.CTkLabel(
                 headers_frame,
                 text=header,
                 font=ctk.CTkFont(size=10, weight="bold"),
                 text_color=COLORS['text'],
-                width=width
+                anchor="center",
             )
-            label.grid(row=0, column=i, padx=2, pady=5, sticky="w")
+            label.grid(row=0, column=i, padx=4, pady=5, sticky="nsew")
         
         # Bill items
         for item in self.cart:
@@ -665,6 +730,10 @@ class Sales(ctk.CTkFrame):
             
             row_frame = ctk.CTkFrame(self.bill_items_frame, fg_color=COLORS['surface'], corner_radius=5)
             row_frame.pack(fill="x", pady=2)
+
+            # Match the same 6 uniform columns as header
+            for col in range(6):
+                row_frame.grid_columnconfigure(col, weight=1, uniform="bill_cols")
             
             # Item name
             name_label = ctk.CTkLabel(
@@ -672,10 +741,9 @@ class Sales(ctk.CTkFrame):
                 text=name[:20] + "..." if len(name) > 20 else name,
                 font=ctk.CTkFont(size=10),
                 text_color=COLORS['text'],
-                width=150,
-                anchor="w"
+                anchor="w",
             )
-            name_label.grid(row=0, column=0, padx=2, pady=5, sticky="w")
+            name_label.grid(row=0, column=0, padx=6, pady=5, sticky="nsew")
             
             # Quantity
             qty_label = ctk.CTkLabel(
@@ -683,9 +751,8 @@ class Sales(ctk.CTkFrame):
                 text=str(quantity),
                 font=ctk.CTkFont(size=10),
                 text_color=COLORS['text'],
-                width=50
             )
-            qty_label.grid(row=0, column=1, padx=2, pady=5, sticky="w")
+            qty_label.grid(row=0, column=1, padx=4, pady=5, sticky="nsew")
             
             # Price
             price_label = ctk.CTkLabel(
@@ -693,32 +760,51 @@ class Sales(ctk.CTkFrame):
                 text=f"₹ {unit_price:.2f}",
                 font=ctk.CTkFont(size=10),
                 text_color=COLORS['text'],
-                width=80
             )
-            price_label.grid(row=0, column=2, padx=2, pady=5, sticky="w")
+            price_label.grid(row=0, column=2, padx=4, pady=5, sticky="nsew")
             
+            # Per-line discount entry
+            line_discount_val = self.line_discounts.get(product_db_id, 0.0)
+            disc_entry = ctk.CTkEntry(
+                row_frame,
+                width=70,
+                height=25,
+                font=ctk.CTkFont(size=10)
+            )
+            disc_entry.insert(0, f"{line_discount_val:.2f}" if line_discount_val else "0")
+            disc_entry.grid(row=0, column=3, padx=4, pady=5, sticky="nsew")
+
+            def on_disc_change(event, pid=product_db_id, entry=disc_entry):
+                try:
+                    val = float(entry.get() or 0)
+                except ValueError:
+                    val = 0
+                self.line_discounts[pid] = max(0.0, val)
+                self.update_totals()
+
+            disc_entry.bind("<KeyRelease>", on_disc_change)
+
             # Total
             total_label = ctk.CTkLabel(
                 row_frame,
                 text=f"₹ {total:.2f}",
                 font=ctk.CTkFont(size=10),
                 text_color=COLORS['text'],
-                width=80
             )
-            total_label.grid(row=0, column=3, padx=2, pady=5, sticky="w")
+            total_label.grid(row=0, column=4, padx=4, pady=5, sticky="nsew")
             
             # Remove button
             remove_btn = ctk.CTkButton(
                 row_frame,
                 text="-",
-                width=30,
+                width=32,
                 height=25,
                 command=lambda pid=product_db_id: self.remove_from_cart(pid),
                 fg_color=COLORS['error'],
                 hover_color="#dc2626",
                 font=ctk.CTkFont(size=12)
             )
-            remove_btn.grid(row=0, column=4, padx=2, pady=5)
+            remove_btn.grid(row=0, column=5, padx=4, pady=5, sticky="nsew")
         
         # Update totals
         self.update_totals()
@@ -726,6 +812,9 @@ class Sales(ctk.CTkFrame):
     def remove_from_cart(self, product_db_id):
         """Remove item from cart"""
         self.cart = [item for item in self.cart if item[0] != product_db_id]
+        # Remove any per-line discount for this product
+        if product_db_id in self.line_discounts:
+            del self.line_discounts[product_db_id]
         self._update_product_qty_label(product_db_id)
         self.update_bill()
     
@@ -733,14 +822,27 @@ class Sales(ctk.CTkFrame):
         """Update bill totals"""
         subtotal = sum(item[4] for item in self.cart)
         self.subtotal_label.configure(text=f"₹ {subtotal:.2f}")
-        
-        # Discount
+
+        # Overall bill discount
         try:
             discount = float(self.discount_entry.get() or 0)
         except ValueError:
-            discount = 0
-        
-        grand_total = max(0, subtotal - discount)
+            discount = 0.0
+
+        # Per-line discounts (sum of rupee values)
+        line_discount_total = sum(self.line_discounts.values()) if hasattr(self, "line_discounts") else 0.0
+
+        # Tax / GST percentage
+        try:
+            gst_pct = float(self.tax_entry.get() or 0)
+        except (ValueError, AttributeError):
+            gst_pct = 0.0
+
+        # Tax is applied on (subtotal - all discounts)
+        taxable_base = max(0.0, subtotal - discount - line_discount_total)
+        tax_amount = taxable_base * (gst_pct / 100.0)
+
+        grand_total = max(0.0, taxable_base + tax_amount)
         self.grand_total_label.configure(text=f"₹ {grand_total:.2f}")
     
     def filter_products(self):
@@ -758,7 +860,15 @@ class Sales(ctk.CTkFrame):
             # Calculate totals
             subtotal = sum(item[4] for item in self.cart)
             discount = float(self.discount_entry.get() or 0)
-            grand_total = max(0, subtotal - discount)
+            # Include per-line discounts and GST
+            line_discount_total = sum(self.line_discounts.values()) if hasattr(self, "line_discounts") else 0.0
+            try:
+                gst_pct = float(self.tax_entry.get() or 0)
+            except (ValueError, AttributeError):
+                gst_pct = 0.0
+            taxable_base = max(0.0, subtotal - discount - line_discount_total)
+            tax_amount = taxable_base * (gst_pct / 100.0)
+            grand_total = max(0.0, taxable_base + tax_amount)
 
             # How much customer is paying right now
             amount_paid_str = self.amount_paid_entry.get().strip() if hasattr(self, "amount_paid_entry") else ""
@@ -799,13 +909,16 @@ class Sales(ctk.CTkFrame):
             transaction_id = f"TXN-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:8].upper()}"
 
             # Insert sale with optional customer_id
-            sale_query = """INSERT INTO sales (transaction_id, total_amount, discount, final_amount, customer_id) 
-                          VALUES (?, ?, ?, ?, ?)"""
+            sale_query = """INSERT INTO sales (transaction_id, total_amount, discount, final_amount,
+                          tax_amount, payment_method, is_return, original_sale_id, customer_id) 
+                          VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)"""
             sale_params = (
                 transaction_id,
                 subtotal,
                 discount,
                 grand_total,
+                tax_amount,
+                self.payment_method_combo.get() if hasattr(self, "payment_method_combo") else None,
                 self.selected_customer_id,
             )
             
@@ -826,9 +939,10 @@ class Sales(ctk.CTkFrame):
                 product_db_id, name, quantity, unit_price, total = item
                 
                 # Insert sale item
-                item_query = """INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price) 
-                              VALUES (?, ?, ?, ?, ?)"""
-                item_params = (sale_id, product_db_id, quantity, unit_price, total)
+                line_discount_val = self.line_discounts.get(product_db_id, 0.0) if hasattr(self, "line_discounts") else 0.0
+                item_query = """INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price, line_discount) 
+                              VALUES (?, ?, ?, ?, ?, ?)"""
+                item_params = (sale_id, product_db_id, quantity, unit_price, total, line_discount_val)
                 
                 if not self.db.execute_query(item_query, item_params):
                     messagebox.showerror("Error", f"Failed to save item: {name}")
@@ -929,9 +1043,12 @@ class Sales(ctk.CTkFrame):
                 "items": [list(item) for item in self.cart],
                 "subtotal": subtotal,
                 "discount": discount,
-                "grand_total": grand_total,
+            "line_discount_total": line_discount_total,
+            "tax_amount": tax_amount,
+            "grand_total": grand_total,
                 "customer": self.customer_combo.get() if self.customer_combo else "Walk-in / Cash",
                 "amount_paid": amount_paid,
+            "payment_method": self.payment_method_combo.get() if hasattr(self, "payment_method_combo") else "Cash",
                 "date": datetime.now().strftime("%d %b %Y, %I:%M %p"),
             }
             if messagebox.askyesno("Print Bill", "Do you want to print the bill?"):
@@ -982,11 +1099,14 @@ class Sales(ctk.CTkFrame):
         rows = "\n".join(lines)
         sub = bill_data["subtotal"]
         disc = bill_data["discount"]
+        line_disc = bill_data.get("line_discount_total", 0.0)
+        tax_amt = bill_data.get("tax_amount", 0.0)
         grand = bill_data["grand_total"]
         paid = bill_data["amount_paid"]
         cust = bill_data["customer"]
         txn = bill_data["transaction_id"]
         date = bill_data["date"]
+        pay_method = bill_data.get("payment_method", "Cash")
         return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Bill - {txn}</title>
 <style>
@@ -1000,14 +1120,16 @@ th {{ font-weight: 600; }}
 @media print {{ body {{ margin: 12px; }} }}
 </style></head><body>
 <h1>VyapaarSetGo - Bill</h1>
-<p style="color:#6b7280;font-size:0.9rem;">{date}<br>Transaction: {txn}<br>Customer: {cust}</p>
+<p style="color:#6b7280;font-size:0.9rem;">{date}<br>Transaction: {txn}<br>Customer: {cust}<br>Payment: {pay_method}</p>
 <table>
 <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
 <tbody>{rows}</tbody>
 </table>
 <div class="totals">
 <p>Subtotal: ₹ {sub:.2f}</p>
-<p>Discount: ₹ {disc:.2f}</p>
+<p>Bill Discount: ₹ {disc:.2f}</p>
+<p>Per-item Discounts: ₹ {line_disc:.2f}</p>
+<p>GST / Tax: ₹ {tax_amt:.2f}</p>
 <p class="grand">Grand Total: ₹ {grand:.2f}</p>
 <p>Amount Paid: ₹ {paid:.2f}</p>
 </div>
@@ -1024,7 +1146,14 @@ th {{ font-weight: 600; }}
             discount = float(self.discount_entry.get() or 0)
         except ValueError:
             discount = 0
-        grand_total = max(0, subtotal - discount)
+        line_discount_total = sum(self.line_discounts.values()) if hasattr(self, "line_discounts") else 0.0
+        try:
+            gst_pct = float(self.tax_entry.get() or 0)
+        except (ValueError, AttributeError):
+            gst_pct = 0.0
+        taxable_base = max(0.0, subtotal - discount - line_discount_total)
+        tax_amount = taxable_base * (gst_pct / 100.0)
+        grand_total = max(0.0, taxable_base + tax_amount)
         customer = self.customer_combo.get() if self.customer_combo else "Walk-in / Cash"
         try:
             amount_paid = float(self.amount_paid_entry.get() or 0)
@@ -1035,9 +1164,12 @@ th {{ font-weight: 600; }}
             "items": [list(item) for item in self.cart],
             "subtotal": subtotal,
             "discount": discount,
+            "line_discount_total": line_discount_total,
+            "tax_amount": tax_amount,
             "grand_total": grand_total,
             "customer": customer,
             "amount_paid": amount_paid,
+            "payment_method": self.payment_method_combo.get() if hasattr(self, "payment_method_combo") else "Cash",
             "date": datetime.now().strftime("%d %b %Y, %I:%M %p"),
         }
         self._open_bill_for_print(bill_data)

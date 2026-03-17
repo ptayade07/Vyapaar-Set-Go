@@ -220,6 +220,10 @@ class Suppliers(ctk.CTkFrame):
         self.tree.heading("total", text="Total")
         self.tree.heading("status", text="Status")
 
+        # Click-to-sort on headings (proper table behavior)
+        for col in columns:
+            self.tree.heading(col, command=lambda c=col: self.sort_treeview(self.tree, c))
+
         # Column widths
         self.tree.column("name", width=170, anchor="w")
         self.tree.column("contact", width=120, anchor="w")
@@ -281,6 +285,7 @@ class Suppliers(ctk.CTkFrame):
 
         # bind selection
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        self.tree.bind("<Double-1>", lambda _e: self.view_selected_supplier())
 
         # Pagination/info label
         pagination_frame = ctk.CTkFrame(table_frame, fg_color="transparent")
@@ -321,6 +326,10 @@ class Suppliers(ctk.CTkFrame):
         self.logs_tree.heading("details", text="Details")
         self.logs_tree.heading("amount", text="Amount")
 
+        # Click-to-sort for logs table too
+        for col in ("date", "supplier", "details", "amount"):
+            self.logs_tree.heading(col, command=lambda c=col: self.sort_treeview(self.logs_tree, c))
+
         self.logs_tree.column("date", width=110, anchor="w")
         self.logs_tree.column("supplier", width=140, anchor="w")
         self.logs_tree.column("details", width=220, anchor="w")
@@ -342,6 +351,30 @@ class Suppliers(ctk.CTkFrame):
 
         # initial load of logs
         self.load_logs()
+
+    def sort_treeview(self, tree: ttk.Treeview, col: str):
+        """Sort a ttk.Treeview by column; toggles asc/desc per column."""
+        # Remember last sort direction per tree/column
+        key = f"_sort_{id(tree)}_{col}"
+        reverse = bool(getattr(self, key, False))
+        setattr(self, key, not reverse)
+
+        def to_num(v: str):
+            try:
+                cleaned = str(v).replace("₹", "").replace(",", "").strip()
+                return float(cleaned)
+            except Exception:
+                return None
+
+        rows = []
+        for iid in tree.get_children(""):
+            val = tree.set(iid, col)
+            num = to_num(val)
+            rows.append((num if num is not None else str(val).lower(), iid))
+
+        rows.sort(reverse=reverse, key=lambda x: x[0])
+        for idx, (_val, iid) in enumerate(rows):
+            tree.move(iid, "", idx)
 
     # ------------------------------------------------------------------
     # Data loading & filtering

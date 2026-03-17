@@ -618,6 +618,8 @@ class ProductDialog(ctk.CTkToplevel):
             ("Purchase Price (₹)", "purchase_price", "0.00"),
             ("Unit Type (kg / litre / piece)", "unit_type", "kg / litre / piece"),
             ("Brand", "brand", "Brand Name"),
+            ("Barcode / SKU (optional)", "barcode", "e.g. 8901234567890"),
+            ("Reorder Level", "reorder_level", "10"),
             (expiry_label_text, "expiry_date", expiry_example),
         ]
         
@@ -703,7 +705,7 @@ class ProductDialog(ctk.CTkToplevel):
                     except AttributeError:
                         display_date = str(self.product_data[6])
                 self.entries["expiry_date"].insert(0, display_date)
-            # Additional fields: indices 9-12: brand, supplier_id, purchase_price, unit_type
+            # Additional fields: indices 9-? brand, supplier_id, purchase_price, unit_type, reorder_level, barcode
             if len(self.product_data) > 9:
                 self.entries["brand"].insert(0, self.product_data[9] or "")
                 supplier_id = self.product_data[10]
@@ -714,8 +716,18 @@ class ProductDialog(ctk.CTkToplevel):
                             break
                 if self.product_data[11] is not None:
                     self.entries["purchase_price"].insert(0, str(self.product_data[11]))
-                if self.product_data[12]:
+                if len(self.product_data) > 12 and self.product_data[12]:
                     self.entries["unit_type"].set(self.product_data[12])
+                # reorder_level and barcode if present
+                # Safely handle older databases that may not yet have these columns populated
+                if len(self.product_data) > 13:
+                    reorder_level = self.product_data[13]
+                    if reorder_level is not None:
+                        self.entries["reorder_level"].insert(0, str(reorder_level))
+                if len(self.product_data) > 14:
+                    barcode = self.product_data[14]
+                    if barcode:
+                        self.entries["barcode"].insert(0, str(barcode))
         
         # Buttons
         btn_frame = ctk.CTkFrame(container, fg_color="transparent")
@@ -793,6 +805,13 @@ class ProductDialog(ctk.CTkToplevel):
                 purchase_price = 0.0
             unit_type = self.entries.get("unit_type").get().strip()
             brand = self.entries.get("brand").get().strip()
+            barcode = self.entries.get("barcode").get().strip()
+            reorder_level_str = self.entries.get("reorder_level").get().strip()
+            try:
+                reorder_level = float(reorder_level_str) if reorder_level_str else None
+            except ValueError:
+                messagebox.showerror("Error", "Reorder level must be a number.")
+                return
             expiry_date_str = self.entries["expiry_date"].get().strip()
             supplier_value = self.supplier_combo.get() if hasattr(self, "supplier_combo") else "-- None --"
             supplier_id = self.supplier_map.get(supplier_value) if supplier_value in self.supplier_map else None
@@ -837,7 +856,7 @@ class ProductDialog(ctk.CTkToplevel):
                 quantity_change = quantity - old_quantity
 
                 query = """UPDATE products SET name=?, category=?, quantity=?,
-                          unit_price=?, expiry_date=?, brand=?, supplier_id=?, purchase_price=?, unit_type=?
+                          unit_price=?, expiry_date=?, brand=?, supplier_id=?, purchase_price=?, unit_type=?, reorder_level=?, barcode=?
                           WHERE id=?"""
                 params = (
                     name,
@@ -849,6 +868,8 @@ class ProductDialog(ctk.CTkToplevel):
                     supplier_id,
                     purchase_price,
                     unit_type,
+                    reorder_level,
+                    barcode,
                     self.product_data[0],
                 )
             else:
@@ -856,8 +877,8 @@ class ProductDialog(ctk.CTkToplevel):
                 product_id = self.generate_product_id()
                 quantity_change = quantity
                 query = """INSERT INTO products (product_id, name, category, quantity, unit_price, expiry_date,
-                          brand, supplier_id, purchase_price, unit_type) 
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+                          brand, supplier_id, purchase_price, unit_type, reorder_level, barcode) 
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
                 params = (
                     product_id,
                     name,
@@ -869,6 +890,8 @@ class ProductDialog(ctk.CTkToplevel):
                     supplier_id,
                     purchase_price,
                     unit_type,
+                    reorder_level,
+                    barcode,
                 )
             
             if self.db.execute_query(query, params):
@@ -896,7 +919,7 @@ class ProductDialog(ctk.CTkToplevel):
 
 
 class QuickStockDialog(ctk.CTkToplevel):
-    """Quick stock update dialog"""
+    """Quick stock / adjustment dialog (including damaged / lost)"""
 
     def __init__(self, parent, db, product_data):
         super().__init__(parent)
@@ -905,8 +928,8 @@ class QuickStockDialog(ctk.CTkToplevel):
         self.setup_dialog()
 
     def setup_dialog(self):
-        self.title("Quick Stock Update")
-        self.geometry("320x220")
+        self.title("Quick Stock / Adjustment")
+        self.geometry("340x280")
         self.resizable(False, False)
         self.configure(fg_color=COLORS['surface'])
 
@@ -951,6 +974,27 @@ class QuickStockDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=12),
         )
         self.qty_entry.pack(fill="x")
+
+        # Reason for change (including damaged / lost)
+        reason_frame = ctk.CTkFrame(container, fg_color="transparent")
+        reason_frame.pack(fill="x", pady=(5, 0))
+
+        ctk.CTkLabel(
+            reason_frame,
+            text="Reason",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS['text'],
+            anchor="w",
+        ).pack(fill="x", pady=(0, 3))
+
+        self.reason_combo = ctk.CTkComboBox(
+            reason_frame,
+            values=["Purchase / Restock", "Damaged", "Lost", "Stock Correction"],
+            height=34,
+            font=ctk.CTkFont(size=12),
+        )
+        self.reason_combo.pack(fill="x")
+        self.reason_combo.set("Purchase / Restock")
 
         btn_frame = ctk.CTkFrame(container, fg_color="transparent")
         btn_frame.pack(fill="x", pady=(20, 0))
@@ -997,9 +1041,11 @@ class QuickStockDialog(ctk.CTkToplevel):
                 return
 
             if change != 0:
+                change_type = self.reason_combo.get() if hasattr(self, "reason_combo") else "Quick Stock Update"
+                note = ""
                 self.db.execute_query(
                     "INSERT INTO product_history (product_id, change_type, quantity_change, note) VALUES (?, ?, ?, ?)",
-                    (product_id, "Quick Stock Update", change, ""),
+                    (product_id, change_type, change, note),
                 )
 
             messagebox.showinfo("Success", "Stock updated successfully")

@@ -57,14 +57,14 @@ class Settings(ctk.CTkFrame):
             ("Payment Reminders", "Get reminders for pending payments", "payment_reminders", None),
         ])
         
-        # Data Management Section
+        # Data Management Section (owner-only)
         self.create_section(scroll_frame, "Data Management", [
             ("Backup Frequency", "Automatic backup schedule", "backup_frequency", ["Daily", "Weekly", "Monthly", "Never"]),
             ("Export Format", "Data export format", "export_format", ["CSV", "Excel", "JSON"]),
             ("Auto-save", "Automatically save changes", "auto_save", None),
         ])
         
-        # Account Settings Section (only Shop Name now)
+        # Account Settings Section (only Shop Name now, owner-only)
         self.create_section(scroll_frame, "Account", [
             ("Shop Name", "Your shop/business name", "shop_name", None),
         ])
@@ -97,6 +97,20 @@ class Settings(ctk.CTkFrame):
             text_color=COLORS['text']
         )
         title_label.pack(anchor="w", padx=20, pady=(20, 15))
+
+        # Determine if this section is owner-only and whether current user is owner
+        is_owner = not self.current_user or (len(self.current_user) > 2 and self.current_user[2] == "shop_owner")
+        owner_only = section_title in ("Data Management", "Account")
+        readonly = owner_only and not is_owner
+
+        if readonly:
+            hint = ctk.CTkLabel(
+                section_frame,
+                text="Only the shop owner can change these settings.",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS['text_light'],
+            )
+            hint.pack(anchor="w", padx=20, pady=(0, 5))
         
         # Section items
         for idx, item in enumerate(items):
@@ -186,7 +200,7 @@ class Settings(ctk.CTkFrame):
                     width=180,
                     height=35,
                     font=ctk.CTkFont(size=12),
-                    state="readonly"
+                    state="readonly" if not readonly else "disabled",
                 )
                 control.set(str(current_value))
                 control.pack(side="right")
@@ -208,6 +222,8 @@ class Settings(ctk.CTkFrame):
                     height=35,
                     font=ctk.CTkFont(size=12)
                 )
+                if readonly:
+                    control.configure(state="disabled")
                 control.insert(0, str(current_value))
                 control.pack(side="right")
             

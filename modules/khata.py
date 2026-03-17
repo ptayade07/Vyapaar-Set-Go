@@ -347,6 +347,14 @@ class Khata(ctk.CTkFrame):
             width=150
         )
         payment_label.grid(row=0, column=3, padx=15, pady=12, sticky="w")
+
+        # Optional credit limit (last column, shown below actions if set)
+        credit_limit = 0.0
+        if len(customer) > 9 and customer[9] is not None:
+            try:
+                credit_limit = float(customer[9])
+            except (TypeError, ValueError):
+                credit_limit = 0.0
         
         # Actions: View Ledger, Add Payment, Edit, Delete
         actions_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
@@ -412,6 +420,16 @@ class Khata(ctk.CTkFrame):
         )
         delete_btn.pack(side="left", padx=2)
         row_frame.customer_data = customer
+
+        # Show credit limit text under the buttons if a limit is set
+        if credit_limit > 0:
+            limit_label = ctk.CTkLabel(
+                row_frame,
+                text=f"Limit: ₹ {credit_limit:.2f}",
+                font=ctk.CTkFont(size=11),
+                text_color=COLORS['text_light'],
+            )
+            limit_label.grid(row=1, column=4, padx=15, pady=(0, 8), sticky="w")
 
         def on_row_click(_event=None, cid=customer_id):
             self.selected_customer = customer
@@ -550,6 +568,7 @@ class CustomerDialog(ctk.CTkToplevel):
             ("Phone Number", "phone", "9876543210"),
             ("Address", "address", "Street, Area, City"),
             ("Opening Balance (₹)", "opening_balance", "0.00"),
+            ("Credit Limit (₹)", "credit_limit", "0.00"),
         ]
         
         self.entries = {}
@@ -605,6 +624,9 @@ class CustomerDialog(ctk.CTkToplevel):
                 self.notes_text.insert("1.0", self.customer_data[8])
             # opening balance from current due_amount (index 3)
             self.entries["opening_balance"].insert(0, str(self.customer_data[3] or 0))
+            # credit limit (index 9 if present)
+            if len(self.customer_data) > 9:
+                self.entries["credit_limit"].insert(0, str(self.customer_data[9] or 0))
         
         # Buttons
         btn_frame = ctk.CTkFrame(container, fg_color="transparent")
@@ -641,23 +663,28 @@ class CustomerDialog(ctk.CTkToplevel):
             phone = self.entries["phone"].get().strip()
             address = self.entries["address"].get().strip()
             opening_raw = self.entries["opening_balance"].get().strip()
+            credit_raw = self.entries["credit_limit"].get().strip()
             notes = self.notes_text.get("1.0", "end").strip()
 
             try:
                 opening_balance = float(opening_raw or 0)
             except ValueError:
                 opening_balance = 0.0
+            try:
+                credit_limit = float(credit_raw or 0)
+            except ValueError:
+                credit_limit = 0.0
             
             if not name or not phone:
                 messagebox.showerror("Error", "Please fill all required fields")
                 return
             
             if self.customer_data:
-                query = "UPDATE customers SET name=?, phone=?, due_amount=?, address=?, notes=? WHERE id=?"
-                params = (name, phone, opening_balance, address, notes, self.customer_data[0])
+                query = "UPDATE customers SET name=?, phone=?, due_amount=?, address=?, notes=?, credit_limit=? WHERE id=?"
+                params = (name, phone, opening_balance, address, notes, credit_limit, self.customer_data[0])
             else:
-                query = "INSERT INTO customers (name, phone, due_amount, address, notes) VALUES (?, ?, ?, ?, ?)"
-                params = (name, phone, opening_balance, address, notes)
+                query = "INSERT INTO customers (name, phone, due_amount, address, notes, credit_limit) VALUES (?, ?, ?, ?, ?, ?)"
+                params = (name, phone, opening_balance, address, notes, credit_limit)
             
             if self.db.execute_query(query, params):
                 messagebox.showinfo("Success", "Customer saved successfully")
@@ -678,9 +705,9 @@ class PaymentHistoryDialog(ctk.CTkToplevel):
         self.setup_dialog()
     
     def setup_dialog(self):
-        """Setup payment history dialog"""
+        """Setup customer ledger dialog (sales + payments)"""
         customer_name = self.customer_data[1]
-        self.title(f"Payment History - {customer_name}")
+        self.title(f"Customer Ledger - {customer_name}")
         self.geometry("600x400")
         self.configure(fg_color=COLORS['surface'])
         
@@ -692,7 +719,7 @@ class PaymentHistoryDialog(ctk.CTkToplevel):
         
         title_label = ctk.CTkLabel(
             container,
-            text=f"Payment History - {customer_name}",
+            text=f"Customer Ledger - {customer_name}",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color=COLORS['text']
         )
@@ -706,61 +733,78 @@ class PaymentHistoryDialog(ctk.CTkToplevel):
         headers_frame = ctk.CTkFrame(table_frame, fg_color=COLORS['surface'], corner_radius=5)
         headers_frame.pack(fill="x", padx=10, pady=10)
         
-        headers = ["Date", "Amount"]
+        headers = ["Date", "Type", "Amount"]
         for i, header in enumerate(headers):
             label = ctk.CTkLabel(
                 headers_frame,
                 text=header,
                 font=ctk.CTkFont(size=12, weight="bold"),
                 text_color=COLORS['text'],
-                width=250
+                width=200
             )
             label.grid(row=0, column=i, padx=10, pady=10, sticky="w")
         
-        # Payments list
+        # Ledger list
         scroll_frame = ctk.CTkScrollableFrame(table_frame, fg_color="transparent")
         scroll_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         
-        # Load payments
-        query = "SELECT payment_date, amount FROM payments WHERE customer_id = ? ORDER BY payment_date DESC"
-        payments = self.db.fetch_all(query, (self.customer_data[0],))
+        # Load sales and payments into a unified ledger
+        ledger_query = """
+            SELECT sale_date AS dt, 'Sale' AS kind, final_amount AS amount
+            FROM sales
+            WHERE customer_id = ?
+          UNION ALL
+            SELECT payment_date AS dt, 'Payment' AS kind, amount AS amount
+            FROM payments
+            WHERE customer_id = ?
+          ORDER BY dt DESC
+        """
+        rows = self.db.fetch_all(ledger_query, (self.customer_data[0], self.customer_data[0]))
         
-        if not payments:
+        if not rows:
             no_data_label = ctk.CTkLabel(
                 scroll_frame,
-                text="No payment history found",
+                text="No transactions found for this customer",
                 font=ctk.CTkFont(size=12),
                 text_color=COLORS['text_light']
             )
             no_data_label.pack(pady=20)
         else:
-            for payment in payments:
+            for dt, kind, amount in rows:
                 row_frame = ctk.CTkFrame(scroll_frame, fg_color=COLORS['surface'], corner_radius=5)
                 row_frame.pack(fill="x", pady=2, padx=5)
 
-                # payment_date can be stored as a datetime object or as a plain string in SQLite
-                payment_date = payment[0]
+                # dt can be stored as a datetime object or as a plain string in SQLite
                 try:
-                    date_str = payment_date.strftime("%Y-%m-%d %H:%M")
+                    date_str = dt.strftime("%Y-%m-%d %H:%M")
                 except AttributeError:
                     # If it's already a string like "YYYY-MM-DD HH:MM:SS", just show it
-                    date_str = str(payment_date)
+                    date_str = str(dt)
 
                 date_label = ctk.CTkLabel(
                     row_frame,
                     text=date_str,
                     font=ctk.CTkFont(size=11),
                     text_color=COLORS['text'],
-                    width=250
+                    width=200
                 )
                 date_label.pack(side="left", padx=10, pady=8)
 
-                amount_label = ctk.CTkLabel(
+                type_label = ctk.CTkLabel(
                     row_frame,
-                    text=f"₹ {payment[1]:.2f}",
+                    text=kind,
                     font=ctk.CTkFont(size=11),
                     text_color=COLORS['text'],
-                    width=250
+                    width=120
+                )
+                type_label.pack(side="left", padx=10, pady=8)
+
+                amount_label = ctk.CTkLabel(
+                    row_frame,
+                    text=f"₹ {float(amount):.2f}",
+                    font=ctk.CTkFont(size=11),
+                    text_color=COLORS['text'],
+                    width=160
                 )
                 amount_label.pack(side="left", padx=10, pady=8)
         
